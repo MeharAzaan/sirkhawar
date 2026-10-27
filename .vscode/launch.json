@@ -1,0 +1,28 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "sir_khawar_pos_updated",
+            "cwd": "sir_khawar_pos_updated",
+            "request": "launch",
+            "type": "dart"
+        },
+        {
+            "name": "sir_khawar_pos_updated (profile mode)",
+            "cwd": "sir_khawar_pos_updated",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "profile"
+        },
+        {
+            "name": "sir_khawar_pos_updated (release mode)",
+            "cwd": "sir_khawar_pos_updated",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "release"
+        }
+    ]
+}

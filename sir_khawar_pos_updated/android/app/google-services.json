@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "285123914889",
+    "project_id": "sir-khawar-pos-updated",
+    "storage_bucket": "sir-khawar-pos-updated.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:285123914889:android:d2831a50fa8d740815ea58",
+        "android_client_info": {
+          "package_name": "com.example.sir_khawar_pos_updated"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyChDpDelZC6CozT_OAsEeorG5bzvl-HMS8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
