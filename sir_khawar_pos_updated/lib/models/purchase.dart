@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class PurchaseItem {
-  final String productId; // may be empty if not in inventory
+  final String productId;
   final String productName;
   final int quantity;
   final double unitPrice;
@@ -26,11 +26,11 @@ class PurchaseItem {
       };
 
   factory PurchaseItem.fromMap(Map<String, dynamic> m) => PurchaseItem(
-        productId: m['productId'] ?? '',
-        productName: m['productName'] ?? '',
+        productId: m['productId']?.toString() ?? '',
+        productName: m['productName']?.toString() ?? '',
         quantity: (m['quantity'] as num?)?.toInt() ?? 0,
         unitPrice: (m['unitPrice'] as num?)?.toDouble() ?? 0.0,
-        addedToInventory: m['addedToInventory'] ?? false,
+        addedToInventory: m['addedToInventory'] == true,
       );
 
   PurchaseItem copyWith({
@@ -55,10 +55,15 @@ class Purchase {
   final String vendorName;
   final List<PurchaseItem> items;
   final DateTime purchaseDate;
-  final String paymentMethod; // 'cash' / 'bank'
+  /// 'cash' | 'bank' | 'cheque'
+  final String paymentMethod;
   final String? bankId;
   final String notes;
   final double totalAmount;
+  // Cheque fields (used when paymentMethod == 'cheque')
+  final String chequeNumber;
+  final DateTime? chequeDate;
+  final String chequeBankName;
 
   Purchase({
     required this.id,
@@ -70,6 +75,9 @@ class Purchase {
     this.bankId,
     this.notes = '',
     required this.totalAmount,
+    this.chequeNumber = '',
+    this.chequeDate,
+    this.chequeBankName = '',
   });
 
   Map<String, dynamic> toMap() => {
@@ -82,20 +90,29 @@ class Purchase {
         'bankId': bankId,
         'notes': notes,
         'totalAmount': totalAmount,
+        'chequeNumber': chequeNumber,
+        'chequeDate':
+            chequeDate != null ? Timestamp.fromDate(chequeDate!) : null,
+        'chequeBankName': chequeBankName,
       };
 
   factory Purchase.fromMap(Map<String, dynamic> m) => Purchase(
-        id: m['id'] ?? '',
-        vendorId: m['vendorId'] ?? '',
-        vendorName: m['vendorName'] ?? '',
+        id: m['id']?.toString() ?? '',
+        vendorId: m['vendorId']?.toString() ?? '',
+        vendorName: m['vendorName']?.toString() ?? '',
         items: (m['items'] as List<dynamic>? ?? [])
             .map((e) => PurchaseItem.fromMap(e as Map<String, dynamic>))
             .toList(),
-        purchaseDate: (m['purchaseDate'] as Timestamp?)?.toDate() ??
-            DateTime.now(),
-        paymentMethod: m['paymentMethod'] ?? 'cash',
-        bankId: m['bankId'],
-        notes: m['notes'] ?? '',
+        purchaseDate:
+            (m['purchaseDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+        paymentMethod: m['paymentMethod']?.toString() ?? 'cash',
+        bankId: m['bankId']?.toString(),
+        notes: m['notes']?.toString() ?? '',
         totalAmount: (m['totalAmount'] as num?)?.toDouble() ?? 0.0,
+        chequeNumber: m['chequeNumber']?.toString() ?? '',
+        chequeDate: m['chequeDate'] != null
+            ? (m['chequeDate'] as Timestamp).toDate()
+            : null,
+        chequeBankName: m['chequeBankName']?.toString() ?? '',
       );
 }

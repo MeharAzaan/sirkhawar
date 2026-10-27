@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:sir_khawar_pos_updated/screens/customers_screen.dart';
 import 'package:sir_khawar_pos_updated/screens/employees_screen.dart';
@@ -12,18 +11,23 @@ import 'screens/customer_cheques_screen.dart';
 import 'screens/inventory_screen.dart';
 import 'screens/quotation_screen.dart';
 import 'screens/invoices_screen.dart';
+import 'screens/vendors_screen.dart';
+import 'screens/purchases_screen.dart';
+import 'screens/reports_screen.dart'; // <-- ADDED
+
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
-import 'data/app_data.dart'; // <-- ADDED
+import 'data/app_data.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: false);
-  await AppData().initialize(); // <-- ADDED
-  await AppData().seedInitialDataIfEmpty(); // <-- ADDED
+  FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: false);
+  await AppData().initialize();
+  await AppData().seedInitialDataIfEmpty();
 
   runApp(const MyApp());
 }
@@ -125,6 +129,9 @@ class _MainLayoutState extends State<MainLayout> {
       case 8: return const EmployeesScreen();
       case 9: return const TemplatesScreen();
       case 10: return const SettingsScreen();
+      case 11: return const VendorsScreen();
+      case 12: return const PurchasesScreen();
+      case 13: return const ReportsScreen(); // <-- ADDED
       default: return const DashboardScreen();
     }
   }

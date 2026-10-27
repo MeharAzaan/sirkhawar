@@ -9,6 +9,8 @@ import '../models/expense.dart';
 import '../models/quotation_template.dart';
 import '../models/employee.dart';
 import '../models/bank_account.dart';
+import '../models/vendor.dart';
+import '../models/purchase.dart';
 
 class CompanySettings {
   String addressLine1;
@@ -71,6 +73,8 @@ class AppData {
   List<SalaryRecord> salaryRecords = [];
   List<QuotationTemplate> quotationTemplates = [];
   List<BankAccount> banks = [];
+  List<Vendor> vendors = [];
+  List<Purchase> purchases = [];
   CompanySettings settings = CompanySettings();
 
   // Global Company Filter: 'all', 'energy', or 'electric'
@@ -185,15 +189,28 @@ class AppData {
     return b;
   }
 
+  /// Sum of all cash purchases (vendor payments made in cash). Shared, not per-company.
+  double get totalCashPurchases => purchases
+      .where((p) => p.paymentMethod == 'cash')
+      .fold(0.0, (s, p) => s + p.totalAmount);
+
   /// Default getter for active filter
   double get cashBalance {
+    double total;
     if (selectedCompanyFilter == 'electric') {
-      return getCashBalance(AppCompanies.electric);
+      total = getCashBalance(AppCompanies.electric);
+    } else if (selectedCompanyFilter == 'energy') {
+      total = getCashBalance(AppCompanies.energy);
+    } else {
+      total = getCashBalance(AppCompanies.energy) +
+          getCashBalance(AppCompanies.electric);
     }
-    if (selectedCompanyFilter == 'energy') {
-      return getCashBalance(AppCompanies.energy);
+    // Vendor cash purchases are shared across companies — only deduct from the
+    // combined view so per-company figures stay clean.
+    if (selectedCompanyFilter == 'all') {
+      total -= totalCashPurchases;
     }
-    return getCashBalance(AppCompanies.energy) + getCashBalance(AppCompanies.electric);
+    return total;
   }
 
   /// Get balance of a specific bank account
@@ -231,6 +248,22 @@ class AppData {
       final sBankId = s.bankId.isNotEmpty ? s.bankId : 'default_bank';
       if (sBankId == normalizedId && s.method == PaymentMethod.online) {
         b -= s.amount;
+      }
+    }
+
+    // Outgoing purchases (bank transfer or cleared cheque)
+    for (final p in purchases) {
+      if (p.bankId == null || p.bankId!.isEmpty) continue;
+      final pBankId = normalizeBankId(p.bankId!);
+      if (pBankId != normalizedId) continue;
+
+      if (p.paymentMethod == 'bank') {
+        b -= p.totalAmount;
+      } else if (p.paymentMethod == 'cheque') {
+        // Future-dated cheques are pending and don't affect bank yet
+        if (p.chequeDate == null || !p.chequeDate!.isAfter(DateTime.now())) {
+          b -= p.totalAmount;
+        }
       }
     }
 
@@ -338,6 +371,15 @@ class AppData {
       banks = snap.docs.map(_bankFromDoc).toList();
       _notify();
     }));
+    _subs.add(_db.collection('vendors').snapshots().listen((snap) {
+      vendors = snap.docs.map(_vendorFromDoc).toList();
+      vendors.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      _notify();
+    }));
+    _subs.add(_db.collection('purchases').orderBy('purchaseDate', descending: true).snapshots().listen((snap) {
+      purchases = snap.docs.map(_purchaseFromDoc).toList();
+      _notify();
+    }));
 
     await _initialFetch();
   }
@@ -353,6 +395,8 @@ class AppData {
         _db.collection('salaryRecords').orderBy('paymentDate', descending: true).get(),
         _db.collection('templates').get(),
         _db.collection('banks').get(),
+        _db.collection('vendors').get(),
+        _db.collection('purchases').orderBy('purchaseDate', descending: true).get(),
       ]);
       products = r[0].docs.map(_productFromDoc).toList();
       quotations = r[1].docs.map(_quotationFromDoc).toList();
@@ -362,6 +406,9 @@ class AppData {
       salaryRecords = r[5].docs.map(_salaryRecordFromDoc).toList();
       quotationTemplates = r[6].docs.map(_templateFromDoc).toList();
       banks = r[7].docs.map(_bankFromDoc).toList();
+      vendors = r[8].docs.map(_vendorFromDoc).toList();
+      vendors.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      purchases = r[9].docs.map(_purchaseFromDoc).toList();
       final sd = await _db.collection('settings').doc('company').get();
       if (sd.exists) settings = _settingsFromDoc(sd);
     } catch (e) {
@@ -392,6 +439,8 @@ class AppData {
       if (!ic.exists) await _db.collection('counters').doc('invoiceCounter').set({'lastNumber': 1000});
       final qc = await _db.collection('counters').doc('quotationCounter').get();
       if (!qc.exists) await _db.collection('counters').doc('quotationCounter').set({'lastNumber': 100});
+      final pc = await _db.collection('counters').doc('purchaseCounter').get();
+      if (!pc.exists) await _db.collection('counters').doc('purchaseCounter').set({'lastNumber': 0});
 
       final banksSnap = await _db.collection('banks').get();
       if (banksSnap.docs.isEmpty) {
@@ -629,6 +678,82 @@ class AppData {
 
   Map<String, dynamic> _templateToMap(QuotationTemplate t) => {'id': t.id, 'name': t.name, 'items': t.items.map((i) => {'productId': i.productId, 'productName': i.productName, 'unitPrice': i.unitPrice, 'quantity': i.quantity, 'discount': i.discount}).toList(), 'notes': t.notes};
 
+  Vendor _vendorFromDoc(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return Vendor(
+      id: d['id']?.toString() ?? doc.id,
+      name: d['name']?.toString() ?? '',
+      phone: d['phone']?.toString() ?? '',
+      email: d['email']?.toString() ?? '',
+      address: d['address']?.toString() ?? '',
+      company: d['company']?.toString() ?? '',
+      notes: d['notes']?.toString() ?? '',
+      createdDate: (d['createdDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> _vendorToMap(Vendor v) => {
+        'id': v.id,
+        'name': v.name,
+        'phone': v.phone,
+        'email': v.email,
+        'address': v.address,
+        'company': v.company,
+        'notes': v.notes,
+        'createdDate': Timestamp.fromDate(v.createdDate),
+      };
+
+  Purchase _purchaseFromDoc(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return Purchase(
+      id: d['id']?.toString() ?? doc.id,
+      vendorId: d['vendorId']?.toString() ?? '',
+      vendorName: d['vendorName']?.toString() ?? '',
+      items: (d['items'] as List<dynamic>? ?? []).map((i) {
+        final im = i as Map<String, dynamic>;
+        return PurchaseItem(
+          productId: im['productId']?.toString() ?? '',
+          productName: im['productName']?.toString() ?? '',
+          quantity: (im['quantity'] as num?)?.toInt() ?? 0,
+          unitPrice: (im['unitPrice'] as num?)?.toDouble() ?? 0.0,
+          addedToInventory: im['addedToInventory'] == true,
+        );
+      }).toList(),
+      purchaseDate: (d['purchaseDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      paymentMethod: d['paymentMethod']?.toString() ?? 'cash',
+      bankId: d['bankId']?.toString(),
+      notes: d['notes']?.toString() ?? '',
+      totalAmount: (d['totalAmount'] as num?)?.toDouble() ?? 0.0,
+      chequeNumber: d['chequeNumber']?.toString() ?? '',
+      chequeDate: d['chequeDate'] != null
+          ? (d['chequeDate'] as Timestamp).toDate()
+          : null,
+      chequeBankName: d['chequeBankName']?.toString() ?? '',
+    );
+  }
+
+  Map<String, dynamic> _purchaseToMap(Purchase p) => {
+        'id': p.id,
+        'vendorId': p.vendorId,
+        'vendorName': p.vendorName,
+        'items': p.items.map((i) => {
+              'productId': i.productId,
+              'productName': i.productName,
+              'quantity': i.quantity,
+              'unitPrice': i.unitPrice,
+              'addedToInventory': i.addedToInventory,
+            }).toList(),
+        'purchaseDate': Timestamp.fromDate(p.purchaseDate),
+        'paymentMethod': p.paymentMethod,
+        'bankId': p.bankId,
+        'notes': p.notes,
+        'totalAmount': p.totalAmount,
+        'chequeNumber': p.chequeNumber,
+        'chequeDate':
+            p.chequeDate != null ? Timestamp.fromDate(p.chequeDate!) : null,
+        'chequeBankName': p.chequeBankName,
+      };
+
   CompanySettings _settingsFromDoc(DocumentSnapshot doc) {
     final d = doc.data() as Map<String, dynamic>? ?? {};
     final num? cashE = d['openingCashEnergy'] as num?;
@@ -693,6 +818,89 @@ class AppData {
   Future<void> addBank(BankAccount b) async => await _db.collection('banks').doc(b.id).set(_bankToMap(b));
   Future<void> updateBank(BankAccount b) async => await _db.collection('banks').doc(b.id).set(_bankToMap(b));
   Future<void> deleteBank(String id) async => await _db.collection('banks').doc(id).delete();
+
+  // ============ VENDOR CRUD ============
+  Future<void> addVendor(Vendor v) async => await _db.collection('vendors').doc(v.id).set(_vendorToMap(v));
+  Future<void> updateVendor(Vendor v) async => await _db.collection('vendors').doc(v.id).set(_vendorToMap(v));
+  Future<void> deleteVendor(String id) async => await _db.collection('vendors').doc(id).delete();
+
+  // ============ PURCHASE CRUD ============
+
+  Future<String> generatePurchaseNumber() async {
+    final ref = _db.collection('counters').doc('purchaseCounter');
+    final num = await _db.runTransaction<int>((tx) async {
+      final snap = await tx.get(ref);
+      final cur = snap.exists ? (snap.data()?['lastNumber'] as int? ?? 0) : 0;
+      tx.set(ref, {'lastNumber': cur + 1});
+      return cur + 1;
+    });
+    final now = DateTime.now();
+    final prefix = 'PUR-${now.year}${now.month.toString().padLeft(2, '0')}';
+    return '$prefix-${num.toString().padLeft(4, '0')}';
+  }
+
+  /// Save purchase + increase stock of any items that are linked to inventory
+  Future<void> addPurchase(Purchase p) async {
+    final batch = _db.batch();
+
+    batch.set(_db.collection('purchases').doc(p.id), _purchaseToMap(p));
+
+    for (final item in p.items) {
+      if (item.productId.isNotEmpty) {
+        final existing = products.where((x) => x.id == item.productId).toList();
+        if (existing.isNotEmpty) {
+          final newQty = existing.first.quantity + item.quantity;
+          batch.update(_db.collection('products').doc(item.productId), {'quantity': newQty});
+        }
+      }
+    }
+
+    await batch.commit();
+  }
+
+  Future<void> deletePurchase(String id) async =>
+      await _db.collection('purchases').doc(id).delete();
+
+  /// Add a purchase item (that wasn't in inventory) into the inventory now,
+  /// and link it back on the purchase doc so it's marked done.
+  Future<void> addPurchaseItemToInventory({
+    required String purchaseId,
+    required int itemIndex,
+    required Product newProduct,
+  }) async {
+    final purchase = purchases.firstWhere((p) => p.id == purchaseId);
+
+    final batch = _db.batch();
+
+    // Create product (initial stock = purchase qty, set inside caller)
+    batch.set(_db.collection('products').doc(newProduct.id), _productToMap(newProduct));
+
+    // Update purchase item: mark addedToInventory + attach productId
+    final updatedItems = List<PurchaseItem>.from(purchase.items);
+    updatedItems[itemIndex] = updatedItems[itemIndex].copyWith(
+      productId: newProduct.id,
+      addedToInventory: true,
+    );
+
+    final updatedPurchase = Purchase(
+      id: purchase.id,
+      vendorId: purchase.vendorId,
+      vendorName: purchase.vendorName,
+      items: updatedItems,
+      purchaseDate: purchase.purchaseDate,
+      paymentMethod: purchase.paymentMethod,
+      bankId: purchase.bankId,
+      notes: purchase.notes,
+      totalAmount: purchase.totalAmount,
+      chequeNumber: purchase.chequeNumber,
+      chequeDate: purchase.chequeDate,
+      chequeBankName: purchase.chequeBankName,
+    );
+
+    batch.set(_db.collection('purchases').doc(purchase.id), _purchaseToMap(updatedPurchase));
+
+    await batch.commit();
+  }
 
   // ============ COUNTERS ============
   Future<String> generateInvoiceNumber() async {

@@ -24,10 +24,13 @@ class Sidebar extends StatelessWidget {
       {'icon': Icons.inventory_2_outlined, 'label': 'Inventory'},
       {'icon': Icons.description_outlined, 'label': 'Quotations'},
       {'icon': Icons.receipt_outlined, 'label': 'Invoices'},
-      {'icon': Icons.people_outline, 'label': 'Customers'}, // <--- NEW CUSTOMERS TAB
-       {'icon': Icons.badge_outlined, 'label': 'Employees'},
+      {'icon': Icons.people_outline, 'label': 'Customers'},
+      {'icon': Icons.badge_outlined, 'label': 'Employees'},
       {'icon': Icons.dashboard_customize_outlined, 'label': 'Templates'},
       {'icon': Icons.settings_outlined, 'label': 'Settings'},
+      {'icon': Icons.store_outlined, 'label': 'Vendors'},
+      {'icon': Icons.shopping_bag_outlined, 'label': 'Purchases'},
+      {'icon': Icons.assessment_outlined, 'label': 'Reports'},
     ];
 
     return AnimatedContainer(
@@ -71,9 +74,11 @@ class Sidebar extends StatelessWidget {
                     onTap: () => onItemSelected(index),
                     borderRadius: BorderRadius.circular(8),
                     child: Container(
-                      // FIX: reduced horizontal padding from 12 to 10 to eliminate 2px overflow when collapsed
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-                      decoration: BoxDecoration(color: isSelected ? Colors.white.withOpacity(0.12) : Colors.transparent, borderRadius: BorderRadius.circular(8)),
+                      decoration: BoxDecoration(
+                        color: isSelected ? Colors.white.withOpacity(0.12) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                       child: Row(
                         children: [
                           Icon(item['icon'] as IconData, color: isSelected ? Colors.white : Colors.grey.shade400, size: 20),

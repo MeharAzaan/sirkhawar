@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:sir_khawar_pos_updated/constants/app_colors.dart';
 import 'package:sir_khawar_pos_updated/data/app_data.dart';
 import '../models/product.dart';
 import '../models/vendor.dart';
 import '../models/purchase.dart';
+import '../models/quotation.dart';
 
 class CreatePurchaseScreen extends StatefulWidget {
   const CreatePurchaseScreen({super.key});
@@ -17,8 +19,11 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   final _formKey = GlobalKey<FormState>();
   Vendor? _vendor;
   final _notesCtrl = TextEditingController();
+  final _chequeNumberCtrl = TextEditingController();
+  final _chequeBankNameCtrl = TextEditingController();
   String _paymentMethod = 'cash';
   String? _bankId;
+  DateTime? _chequeDate;
   List<_PLine> _items = [_PLine.empty()];
   bool _saving = false;
 
@@ -32,6 +37,8 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   void dispose() {
     data.removeListener(_onDataChanged);
     _notesCtrl.dispose();
+    _chequeNumberCtrl.dispose();
+    _chequeBankNameCtrl.dispose();
     super.dispose();
   }
 
@@ -39,8 +46,10 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     if (mounted) setState(() {});
   }
 
-  double get _total => _items.fold(
-      0.0, (s, i) => s + (i.unitPrice * i.quantity));
+  double get _total =>
+      _items.fold(0.0, (s, i) => s + (i.unitPrice * i.quantity));
+
+  String _fmt(double v) => 'Rs. ${v.toStringAsFixed(2)}';
 
   void _addItem() => setState(() => _items.add(_PLine.empty()));
 
@@ -49,13 +58,25 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     setState(() => _items.removeAt(i));
   }
 
+  Future<void> _pickChequeDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _chequeDate ?? now,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 2),
+    );
+    if (picked != null) setState(() => _chequeDate = picked);
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (_vendor == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Please select a vendor'),
-            backgroundColor: AppColors.expenseRed),
+          content: Text('Please select a vendor'),
+          backgroundColor: AppColors.expenseRed,
+        ),
       );
       return;
     }
@@ -65,8 +86,29 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     if (validItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Add at least one item'),
-            backgroundColor: AppColors.expenseRed),
+          content: Text('Add at least one item'),
+          backgroundColor: AppColors.expenseRed,
+        ),
+      );
+      return;
+    }
+    if ((_paymentMethod == 'bank' || _paymentMethod == 'cheque') &&
+        (_bankId == null || _bankId!.isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a bank account'),
+          backgroundColor: AppColors.expenseRed,
+        ),
+      );
+      return;
+    }
+    if (_paymentMethod == 'cheque' &&
+        _chequeNumberCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter cheque number'),
+          backgroundColor: AppColors.expenseRed,
+        ),
       );
       return;
     }
@@ -89,9 +131,18 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
             .toList(),
         purchaseDate: DateTime.now(),
         paymentMethod: _paymentMethod,
-        bankId: _paymentMethod == 'bank' ? _bankId : null,
+        bankId: (_paymentMethod == 'bank' || _paymentMethod == 'cheque')
+            ? _bankId
+            : null,
         notes: _notesCtrl.text.trim(),
         totalAmount: _total,
+        chequeNumber: _paymentMethod == 'cheque'
+            ? _chequeNumberCtrl.text.trim()
+            : '',
+        chequeDate: _paymentMethod == 'cheque' ? _chequeDate : null,
+        chequeBankName: _paymentMethod == 'cheque'
+            ? _chequeBankNameCtrl.text.trim()
+            : '',
       );
 
       await data.addPurchase(purchase);
@@ -119,8 +170,32 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     }
   }
 
+  Widget _balanceChip(String label, double amount, {Color? color}) {
+    final c = color ?? AppColors.bankBlue;
+    return Container(
+      margin: const EdgeInsets.only(right: 8, top: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: c.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: c.withOpacity(0.25)),
+      ),
+      child: Text(
+        '$label: ${_fmt(amount)}',
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: c,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final energyCash = data.getCashBalance(AppCompanies.energy);
+    final electricCash = data.getCashBalance(AppCompanies.electric);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -135,7 +210,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Vendor selector
+              // Vendor
               Autocomplete<Vendor>(
                 displayStringForOption: (v) => v.name,
                 optionsBuilder: (t) {
@@ -193,56 +268,163 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
               const SizedBox(height: 16),
 
               // Payment method
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      value: _paymentMethod,
-                      decoration: const InputDecoration(
-                          labelText: 'Payment Method',
-                          border: OutlineInputBorder()),
-                      items: const [
-                        DropdownMenuItem(
-                            value: 'cash', child: Text('Cash')),
-                        DropdownMenuItem(
-                            value: 'bank', child: Text('Bank')),
-                      ],
-                      onChanged: (v) => setState(() {
-                        _paymentMethod = v ?? 'cash';
-                        if (_paymentMethod != 'bank') _bankId = null;
-                      }),
+              DropdownButtonFormField<String>(
+                value: _paymentMethod,
+                decoration: const InputDecoration(
+                  labelText: 'Payment Method *',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                  DropdownMenuItem(value: 'bank', child: Text('Bank')),
+                  DropdownMenuItem(value: 'cheque', child: Text('Cheque')),
+                ],
+                onChanged: (v) => setState(() {
+                  _paymentMethod = v ?? 'cash';
+                  if (_paymentMethod == 'cash') {
+                    _bankId = null;
+                  }
+                }),
+              ),
+              const SizedBox(height: 8),
+
+              // Cash balances
+              if (_paymentMethod == 'cash') ...[
+                Wrap(
+                  children: [
+                    _balanceChip(
+                      'Energy Cash',
+                      energyCash,
+                      color: AppColors.cashGreen,
                     ),
+                    _balanceChip(
+                      'Electric Cash',
+                      electricCash,
+                      color: AppColors.cashGreen,
+                    ),
+                    _balanceChip(
+                      'Total Cash',
+                      energyCash + electricCash,
+                      color: AppColors.bankBlue,
+                    ),
+                  ],
+                ),
+              ],
+
+              // Bank / Cheque bank picker with live balances
+              if (_paymentMethod == 'bank' ||
+                  _paymentMethod == 'cheque') ...[
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: _bankId,
+                  decoration: const InputDecoration(
+                    labelText: 'Bank Account *',
+                    border: OutlineInputBorder(),
                   ),
-                  if (_paymentMethod == 'bank') ...[
-                    const SizedBox(width: 16),
+                  items: data.banks.map((b) {
+                    final bal = data.getBankBalance(b.id);
+                    final companyLabel = b.company == AppCompanies.electric
+                        ? 'Electric'
+                        : 'Energy';
+                    return DropdownMenuItem(
+                      value: b.id,
+                      child: Text(
+                        '${b.name}'
+                        '${b.accountTitle.isNotEmpty ? " — ${b.accountTitle}" : ""}'
+                        ' ($companyLabel)  •  ${_fmt(bal)}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (v) => setState(() => _bankId = v),
+                ),
+                if (_bankId != null) ...[
+                  const SizedBox(height: 6),
+                  _balanceChip(
+                    'Selected bank balance',
+                    data.getBankBalance(_bankId!),
+                    color: AppColors.bankBlue,
+                  ),
+                  if (_total > data.getBankBalance(_bankId!))
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Warning: purchase total exceeds bank balance',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.expenseRed,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                ],
+              ],
+
+              // Cheque details
+              if (_paymentMethod == 'cheque') ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
                     Expanded(
-                      child: DropdownButtonFormField<String>(
-                        value: _bankId,
+                      child: TextFormField(
+                        controller: _chequeNumberCtrl,
                         decoration: const InputDecoration(
-                            labelText: 'Bank Account',
-                            border: OutlineInputBorder()),
-                        items: data.bankAccounts
-                            .map((b) => DropdownMenuItem(
-                                value: b.id,
-                                child: Text(
-                                    '${b.bankName} - ${b.accountTitle}')))
-                            .toList(),
-                        onChanged: (v) => setState(() => _bankId = v),
+                          labelText: 'Cheque Number *',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _chequeBankNameCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Cheque Bank Name',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: InkWell(
+                        onTap: _pickChequeDate,
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Cheque Date',
+                            border: OutlineInputBorder(),
+                            suffixIcon: Icon(Icons.calendar_today, size: 18),
+                          ),
+                          child: Text(
+                            _chequeDate == null
+                                ? 'Select date'
+                                : DateFormat('dd MMM yyyy')
+                                    .format(_chequeDate!),
+                            style: TextStyle(
+                              color: _chequeDate == null
+                                  ? AppColors.textSecondary
+                                  : AppColors.textPrimary,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ],
-                ],
-              ),
+                ),
+              ],
+
               const SizedBox(height: 24),
 
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Items',
-                      style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textPrimary)),
+                  const Text(
+                    'Items',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
                   ElevatedButton.icon(
                     icon: const Icon(Icons.add),
                     label: const Text('Add Item'),
@@ -273,14 +455,12 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                             Expanded(
                               flex: 3,
                               child: Autocomplete<Product>(
-                                initialValue: TextEditingValue(
-                                    text: item.productName),
+                                initialValue:
+                                    TextEditingValue(text: item.productName),
                                 displayStringForOption: (p) =>
                                     '${p.id} - ${p.name}',
                                 optionsBuilder: (t) {
-                                  if (t.text.isEmpty) {
-                                    return data.products;
-                                  }
+                                  if (t.text.isEmpty) return data.products;
                                   final q = t.text.toLowerCase();
                                   return data.products.where((p) =>
                                       p.id.toLowerCase().contains(q) ||
@@ -293,8 +473,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                     item.unitPrice = p.price;
                                   });
                                 },
-                                fieldViewBuilder:
-                                    (ctx, ctrl, fn, _) {
+                                fieldViewBuilder: (ctx, ctrl, fn, _) {
                                   return TextFormField(
                                     controller: ctrl,
                                     focusNode: fn,
@@ -310,8 +489,6 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                     onChanged: (v) {
                                       setState(() {
                                         item.productName = v;
-                                        // If user clears or types something new,
-                                        // detach from existing inventory id
                                         final match = data.products
                                             .where((p) =>
                                                 '${p.id} - ${p.name}' == v)
@@ -331,10 +508,8 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                       elevation: 4,
                                       color: AppColors.cardBg,
                                       child: ConstrainedBox(
-                                        constraints:
-                                            const BoxConstraints(
-                                                maxHeight: 240,
-                                                maxWidth: 400),
+                                        constraints: const BoxConstraints(
+                                            maxHeight: 240, maxWidth: 400),
                                         child: ListView(
                                           padding: EdgeInsets.zero,
                                           shrinkWrap: true,
@@ -342,15 +517,15 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                               .map((p) => ListTile(
                                                     dense: true,
                                                     title: Text(
-                                                        '${p.id} - ${p.name}',
-                                                        style: const TextStyle(
-                                                            fontSize:
-                                                                13)),
+                                                      '${p.id} - ${p.name}',
+                                                      style: const TextStyle(
+                                                          fontSize: 13),
+                                                    ),
                                                     subtitle: Text(
-                                                        'Stock: ${p.stock}',
-                                                        style: const TextStyle(
-                                                            fontSize:
-                                                                11)),
+                                                      'Stock: ${p.quantity}',
+                                                      style: const TextStyle(
+                                                          fontSize: 11),
+                                                    ),
                                                     onTap: () =>
                                                         onSelected(p),
                                                   ))
@@ -372,8 +547,8 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                   isDense: true,
                                 ),
                                 keyboardType: TextInputType.number,
-                                onChanged: (v) => setState(() => item
-                                    .quantity = int.tryParse(v) ?? 1),
+                                onChanged: (v) => setState(() =>
+                                    item.quantity = int.tryParse(v) ?? 1),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -389,9 +564,9 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                 keyboardType:
                                     const TextInputType.numberWithOptions(
                                         decimal: true),
-                                onChanged: (v) => setState(() => item
-                                    .unitPrice =
-                                    double.tryParse(v) ?? 0),
+                                onChanged: (v) => setState(() =>
+                                    item.unitPrice =
+                                        double.tryParse(v) ?? 0),
                               ),
                             ),
                             IconButton(
@@ -409,16 +584,14 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                   horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
                                 color: existing
-                                    ? AppColors.cashGreen
-                                        .withOpacity(0.1)
-                                    : AppColors.expenseRed
-                                        .withOpacity(0.1),
+                                    ? AppColors.cashGreen.withValues(alpha: 0.1)
+                                    : AppColors.expenseRed.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
                                 existing
-                                    ? '✓ In inventory — stock will increase by ${item.quantity}'
-                                    : '⚠ Not in inventory — can be added later',
+                                    ? '✓ In inventory — stock +${item.quantity}'
+                                    : '⚠ Not in inventory — add later',
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w600,
@@ -430,10 +603,12 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                             ),
                             const Spacer(),
                             Text(
-                                'Line Total: Rs. ${(item.quantity * item.unitPrice).toStringAsFixed(2)}',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.textPrimary)),
+                              'Line: ${_fmt(item.quantity * item.unitPrice)}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
                           ],
                         ),
                       ],
@@ -462,16 +637,22 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Total Amount',
-                        style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textPrimary)),
-                    Text('Rs. ${_total.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.bankBlue)),
+                    const Text(
+                      'Total Amount',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      _fmt(_total),
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.bankBlue,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -482,16 +663,20 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                   ElevatedButton(
                     onPressed: _saving ? null : _save,
                     style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.cashGreen,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 32, vertical: 14)),
+                      backgroundColor: AppColors.cashGreen,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 32, vertical: 14),
+                    ),
                     child: _saving
                         ? const SizedBox(
                             width: 20,
                             height: 20,
                             child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
                         : const Text('Save Purchase'),
                   ),
                 ],
