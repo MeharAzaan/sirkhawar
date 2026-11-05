@@ -80,6 +80,9 @@ class AppData {
   // Global Company Filter: 'all', 'energy', or 'electric'
   String selectedCompanyFilter = 'all';
 
+  String get selectedCompany => selectedCompanyFilter;
+  String get currentCompany => selectedCompanyFilter;
+
   void setSelectedCompanyFilter(String company) {
     selectedCompanyFilter = company;
     _notify();

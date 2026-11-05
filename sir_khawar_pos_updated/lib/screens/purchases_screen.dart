@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:sir_khawar_pos_updated/constants/app_colors.dart';
 import 'package:sir_khawar_pos_updated/data/app_data.dart';
-import '../models/purchase.dart';
+
 import 'create_purchase_screen.dart';
 import 'purchase_detail_screen.dart';
 

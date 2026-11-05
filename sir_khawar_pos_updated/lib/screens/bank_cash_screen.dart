@@ -5,6 +5,22 @@ import 'package:sir_khawar_pos_updated/data/app_data.dart';
 import 'package:sir_khawar_pos_updated/models/quotation.dart';
 import 'package:sir_khawar_pos_updated/models/bank_account.dart';
 
+class LedgerItem {
+  final DateTime date;
+  final String description;
+  final double credit; // Money In
+  final double debit;  // Money Out
+  double balance;      // Running Balance
+
+  LedgerItem({
+    required this.date,
+    required this.description,
+    this.credit = 0.0,
+    this.debit = 0.0,
+    this.balance = 0.0,
+  });
+}
+
 class BankCashScreen extends StatefulWidget {
   const BankCashScreen({super.key});
 
@@ -14,6 +30,7 @@ class BankCashScreen extends StatefulWidget {
 
 class _BankCashScreenState extends State<BankCashScreen> {
   final AppData data = AppData();
+  String _selectedLedgerAccount = 'cash_energy';
 
   @override
   void initState() {
@@ -377,10 +394,22 @@ class _BankCashScreenState extends State<BankCashScreen> {
     return data.banks.where((b) => b.company == company).toList();
   }
 
+  String _formatDate(DateTime d) {
+    return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final energyCash = data.getCashBalance(AppCompanies.energy);
     final electricCash = data.getCashBalance(AppCompanies.electric);
+
+    // Ensure selected ledger account is valid (fallback if a bank was deleted)
+    bool validLedgerAcc = _selectedLedgerAccount == 'cash_energy' ||
+        _selectedLedgerAccount == 'cash_electric' ||
+        data.banks.any((b) => b.id == _selectedLedgerAccount);
+    if (!validLedgerAcc) {
+      _selectedLedgerAccount = 'cash_energy';
+    }
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -463,8 +492,18 @@ class _BankCashScreenState extends State<BankCashScreen> {
             ),
             const SizedBox(height: 32),
 
+            // ── Transaction Ledger (Full History) ──
+            const Text('Transaction History (Ledger)',
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary)),
+            const SizedBox(height: 16),
+            _buildLedgerSection(),
+            const SizedBox(height: 32),
+
             // ── Breakdown ──
-            const Text('Breakdown',
+            const Text('Summary Breakdown',
                 style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -569,6 +608,276 @@ class _BankCashScreenState extends State<BankCashScreen> {
     );
   }
 
+  Widget _buildLedgerSection() {
+    List<DropdownMenuItem<String>> accountItems = [
+      const DropdownMenuItem(
+          value: 'cash_energy', child: Text('Cash – Energy Solution')),
+      const DropdownMenuItem(
+          value: 'cash_electric', child: Text('Cash – Electric Solutions')),
+    ];
+
+    for (var b in data.banks) {
+      accountItems.add(DropdownMenuItem(
+          value: b.id,
+          child: Text('${b.name} (${AppCompanies.label(b.company)})')));
+    }
+
+    // Generate transactions dynamically based on selected account
+    List<LedgerItem> items = [];
+    double openingBalance = 0;
+
+    bool isEnergyCash = _selectedLedgerAccount == 'cash_energy';
+    bool isElectricCash = _selectedLedgerAccount == 'cash_electric';
+    bool isBank = !isEnergyCash && !isElectricCash;
+
+    if (isEnergyCash) {
+      openingBalance = data.settings.getOpeningCash(AppCompanies.energy);
+    } else if (isElectricCash) {
+      openingBalance = data.settings.getOpeningCash(AppCompanies.electric);
+    } else {
+      final bank = data.banks.firstWhere((b) => b.id == _selectedLedgerAccount,
+          orElse: () => BankAccount(
+              id: '', name: 'Unknown', company: '', openingBalance: 0));
+      openingBalance = bank.openingBalance;
+    }
+
+    // 1. Sales Payments (Inflows)
+    for (var sale in data.salesHistory) {
+      for (var p in sale.payments) {
+        bool include = false;
+        if (isEnergyCash &&
+            sale.company == AppCompanies.energy &&
+            p.method == PaymentMethod.cash) include = true;
+        if (isElectricCash &&
+            sale.company == AppCompanies.electric &&
+            p.method == PaymentMethod.cash) include = true;
+        if (isBank) {
+          String bId = p.bankId.isNotEmpty ? p.bankId : 'default_bank';
+          if (bId == _selectedLedgerAccount &&
+              (p.method == PaymentMethod.online ||
+                  (p.method == PaymentMethod.cheque &&
+                      p.chequeDate != null &&
+                      !p.chequeDate!.isAfter(DateTime.now())))) {
+            include = true;
+          }
+        }
+        if (include) {
+          items.add(LedgerItem(
+            date: p.date,
+            description:
+                'Payment Received (Inv #${sale.invoiceNumber} - ${sale.customerName})',
+            credit: p.amount,
+          ));
+        }
+      }
+    }
+
+    // 2. Expenses (Outflows)
+    for (var exp in data.expenses) {
+      bool include = false;
+      if (isEnergyCash &&
+          exp.company == AppCompanies.energy &&
+          exp.paidFrom == 'cash') include = true;
+      if (isElectricCash &&
+          exp.company == AppCompanies.electric &&
+          exp.paidFrom == 'cash') include = true;
+      if (isBank && data.normalizeBankId(exp.paidFrom) == _selectedLedgerAccount) {
+        include = true;
+      }
+
+      if (include) {
+        items.add(LedgerItem(
+          date: exp.date,
+          description: 'Expense Paid (${exp.category} - ${exp.description})',
+          debit: exp.amount,
+        ));
+      }
+    }
+
+    // 3. Salaries (Outflows)
+    for (var sal in data.salaryRecords) {
+      bool include = false;
+      if (isEnergyCash &&
+          sal.company == AppCompanies.energy &&
+          sal.method == PaymentMethod.cash) include = true;
+      if (isElectricCash &&
+          sal.company == AppCompanies.electric &&
+          sal.method == PaymentMethod.cash) include = true;
+      if (isBank && sal.method == PaymentMethod.online) {
+        String bId = sal.bankId.isNotEmpty ? sal.bankId : 'default_bank';
+        if (bId == _selectedLedgerAccount) include = true;
+      }
+
+      if (include) {
+        items.add(LedgerItem(
+          date: sal.paymentDate,
+          description:
+              'Salary Paid (${sal.employeeName} - ${sal.salaryMonth})',
+          debit: sal.amount,
+        ));
+      }
+    }
+
+    // 4. Purchases (Outflows) 
+    for (var pur in data.purchases) {
+      bool include = false;
+
+      // Only evaluate for banks, because AppData.getCashBalance() per company
+      // does not deduct cash purchases (they are deducted from total combined cash).
+      if (isBank && pur.bankId != null && pur.bankId!.isNotEmpty) {
+        final pBankId = data.normalizeBankId(pur.bankId!);
+        if (pBankId == _selectedLedgerAccount) {
+          if (pur.paymentMethod == 'bank') {
+            include = true;
+          } else if (pur.paymentMethod == 'cheque') {
+            if (pur.chequeDate == null || !pur.chequeDate!.isAfter(DateTime.now())) {
+              include = true;
+            }
+          }
+        }
+      }
+
+      if (include) {
+        final chequeInfo = pur.paymentMethod == 'cheque' && pur.chequeNumber.isNotEmpty
+            ? ' Chq #${pur.chequeNumber}'
+            : '';
+        items.add(LedgerItem(
+          date: pur.purchaseDate,
+          description: 'Purchase Paid (${pur.vendorName}$chequeInfo)',
+          debit: pur.totalAmount,
+        ));
+      }
+    }
+
+    // Sort ascending by date
+    items.sort((a, b) => a.date.compareTo(b.date));
+
+    // Calculate Running Balances
+    double currentBalance = openingBalance;
+    for (var item in items) {
+      currentBalance += item.credit;
+      currentBalance -= item.debit;
+      item.balance = currentBalance;
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Account Dropdown Filter
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                const Text('Select Account: ',
+                    style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.bold)),
+                const SizedBox(width: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    border: Border.all(color: AppColors.border),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _selectedLedgerAccount,
+                      items: accountItems,
+                      style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500),
+                      dropdownColor: AppColors.cardBg,
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            _selectedLedgerAccount = val;
+                          });
+                        }
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: AppColors.border),
+          // Transactions Table
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowColor:
+                  WidgetStateProperty.all(AppColors.background),
+              dataRowMinHeight: 40,
+              dataRowMaxHeight: 50,
+              columns: const [
+                DataColumn(
+                    label: Text('Date',
+                        style: TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(
+                    label: Text('Description',
+                        style: TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(
+                    label: Text('Credit (In)',
+                        style: TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(
+                    label: Text('Debit (Out)',
+                        style: TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(
+                    label: Text('Running Balance',
+                        style: TextStyle(fontWeight: FontWeight.bold))),
+              ],
+              rows: [
+                // Opening Balance Row
+                DataRow(cells: [
+                  const DataCell(Text('-')),
+                  const DataCell(Text('Opening Balance',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textSecondary))),
+                  const DataCell(Text('-')),
+                  const DataCell(Text('-')),
+                  DataCell(Text('Rs. ${openingBalance.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.bankBlue))),
+                ]),
+                // Transaction Rows
+                ...items.map((t) {
+                  return DataRow(cells: [
+                    DataCell(Text(_formatDate(t.date))),
+                    DataCell(Text(t.description)),
+                    DataCell(Text(
+                      t.credit > 0 ? 'Rs. ${t.credit.toStringAsFixed(2)}' : '-',
+                      style: const TextStyle(color: AppColors.cashGreen),
+                    )),
+                    DataCell(Text(
+                      t.debit > 0 ? 'Rs. ${t.debit.toStringAsFixed(2)}' : '-',
+                      style: const TextStyle(color: AppColors.expenseRed),
+                    )),
+                    DataCell(Text('Rs. ${t.balance.toStringAsFixed(2)}',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: t.balance >= 0
+                                ? AppColors.textPrimary
+                                : AppColors.expenseRed))),
+                  ]);
+                }),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildBreakdown() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -606,6 +915,16 @@ class _BankCashScreenState extends State<BankCashScreen> {
               final bid = s.bankId.isNotEmpty ? s.bankId : 'default_bank';
               return bid == bank.id && s.method == PaymentMethod.online;
             }).fold(0.0, (s, r) => s + r.amount);
+            
+            final bPur = data.purchases.where((p) {
+              if (p.bankId == null || p.bankId!.isEmpty) return false;
+              if (data.normalizeBankId(p.bankId!) != bank.id) return false;
+              if (p.paymentMethod == 'bank') return true;
+              if (p.paymentMethod == 'cheque') {
+                return p.chequeDate == null || !p.chequeDate!.isAfter(DateTime.now());
+              }
+              return false;
+            }).fold(0.0, (s, p) => s + p.totalAmount);
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -621,6 +940,7 @@ class _BankCashScreenState extends State<BankCashScreen> {
                 _row('Payments In', bPay, AppColors.bankBlue),
                 _row('Expenses', -bExp, AppColors.expenseRed),
                 _row('Salaries', -bSal, AppColors.expenseRed),
+                _row('Purchases', -bPur, AppColors.expenseRed),
                 const Divider(height: 20, color: AppColors.border),
                 _row('Balance', data.getBankBalance(bank.id), AppColors.bankBlue,
                     bold: true),

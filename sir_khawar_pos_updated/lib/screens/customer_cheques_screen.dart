@@ -15,6 +15,7 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
   final data = AppData();
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  bool _isSaving = false;
 
   @override
   void initState() {
@@ -35,6 +36,30 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
 
   String formatCurrency(double amount) {
     return 'Rs. ${NumberFormat('#,##0.00', 'en_US').format(amount)}';
+  }
+
+  /// Active company for new cheque records ('energy' or 'electric')
+  String get _activeCompany {
+    if (data.selectedCompanyFilter == AppCompanies.electric) {
+      return AppCompanies.electric;
+    }
+    return AppCompanies.energy;
+  }
+
+  List<String> _uniqueCustomerNames() {
+    final names = <String>{};
+    for (final sale in data.salesHistory) {
+      if (sale.customerName.trim().isNotEmpty) {
+        names.add(sale.customerName.trim());
+      }
+    }
+    for (final q in data.quotations) {
+      if (q.customerName.trim().isNotEmpty) {
+        names.add(q.customerName.trim());
+      }
+    }
+    final list = names.toList()..sort();
+    return list;
   }
 
   Future<void> _markDone(String saleId, String paymentId) async {
@@ -71,16 +96,585 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
     );
 
     if (confirm == true) {
-      await data.clearCheque(saleId, paymentId);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Cheque marked as cleared'),
-            backgroundColor: AppColors.cashGreen,
-          ),
-        );
+      try {
+        await data.clearCheque(saleId, paymentId);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Cheque marked as cleared'),
+              backgroundColor: AppColors.cashGreen,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please check your internet connection'),
+              backgroundColor: AppColors.expenseRed,
+            ),
+          );
+        }
       }
     }
+  }
+
+  void _showAddChequeDialog() {
+    final formKey = GlobalKey<FormState>();
+    final customerNameCtrl = TextEditingController();
+    final customerPhoneCtrl = TextEditingController();
+    final chequeNumberCtrl = TextEditingController();
+    final issuingBankCtrl = TextEditingController();
+    final amountCtrl = TextEditingController();
+    DateTime chequeDate = DateTime.now();
+    String? selectedBankId;
+
+    final companyBanks =
+        data.banks.where((b) => b.company == _activeCompany).toList();
+    if (companyBanks.isNotEmpty) {
+      selectedBankId = companyBanks.first.id;
+    }
+
+    final customers = _uniqueCustomerNames();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModal) {
+            return AlertDialog(
+              backgroundColor: AppColors.cardBg,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              title: Row(
+                children: [
+                  const Icon(Icons.add_card, color: AppColors.bankBlue),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Add Customer Cheque',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close,
+                        color: AppColors.textSecondary),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 520,
+                child: SingleChildScrollView(
+                  child: Form(
+                    key: formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Company: ${_activeCompany == AppCompanies.energy ? "Alternative Energy Solution" : "Alternative Electric Solutions Pvt. Ltd."}',
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        // Customer Name (searchable)
+                        const Text('Customer Name',
+                            style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 6),
+                        Autocomplete<String>(
+                          optionsBuilder: (value) {
+                            if (value.text.isEmpty) return customers;
+                            return customers.where((c) => c
+                                .toLowerCase()
+                                .contains(value.text.toLowerCase()));
+                          },
+                          onSelected: (v) => customerNameCtrl.text = v,
+                          fieldViewBuilder:
+                              (context, controller, focusNode, onComplete) {
+                            controller.addListener(() {
+                              customerNameCtrl.text = controller.text;
+                            });
+                            return TextFormField(
+                              controller: controller,
+                              focusNode: focusNode,
+                              style: const TextStyle(
+                                  color: AppColors.textPrimary),
+                              decoration: InputDecoration(
+                                hintText: 'Enter or search customer...',
+                                hintStyle: const TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 13),
+                                prefixIcon: const Icon(Icons.person,
+                                    color: AppColors.bankBlue, size: 20),
+                                filled: true,
+                                fillColor: AppColors.background,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(
+                                      color: AppColors.border),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(
+                                      color: AppColors.border),
+                                ),
+                              ),
+                              validator: (v) =>
+                                  (v == null || v.trim().isEmpty)
+                                      ? 'Required'
+                                      : null,
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Phone
+                        const Text('Customer Phone (Optional)',
+                            style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 6),
+                        TextFormField(
+                          controller: customerPhoneCtrl,
+                          keyboardType: TextInputType.phone,
+                          style:
+                              const TextStyle(color: AppColors.textPrimary),
+                          decoration: InputDecoration(
+                            hintText: 'e.g. 0300-1234567',
+                            hintStyle: const TextStyle(
+                                color: AppColors.textSecondary, fontSize: 13),
+                            prefixIcon: const Icon(Icons.phone,
+                                color: AppColors.bankBlue, size: 20),
+                            filled: true,
+                            fillColor: AppColors.background,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide:
+                                  const BorderSide(color: AppColors.border),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide:
+                                  const BorderSide(color: AppColors.border),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Cheque # + Amount
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Cheque Number',
+                                      style: TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500)),
+                                  const SizedBox(height: 6),
+                                  TextFormField(
+                                    controller: chequeNumberCtrl,
+                                    style: const TextStyle(
+                                        color: AppColors.textPrimary),
+                                    decoration: InputDecoration(
+                                      hintText: 'Cheque #',
+                                      hintStyle: const TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 13),
+                                      filled: true,
+                                      fillColor: AppColors.background,
+                                      border: OutlineInputBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(8),
+                                        borderSide: const BorderSide(
+                                            color: AppColors.border),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(8),
+                                        borderSide: const BorderSide(
+                                            color: AppColors.border),
+                                      ),
+                                    ),
+                                    validator: (v) =>
+                                        (v == null || v.trim().isEmpty)
+                                            ? 'Required'
+                                            : null,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Amount (PKR)',
+                                      style: TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500)),
+                                  const SizedBox(height: 6),
+                                  TextFormField(
+                                    controller: amountCtrl,
+                                    keyboardType: TextInputType.number,
+                                    style: const TextStyle(
+                                        color: AppColors.textPrimary),
+                                    decoration: InputDecoration(
+                                      hintText: '0.00',
+                                      hintStyle: const TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 13),
+                                      filled: true,
+                                      fillColor: AppColors.background,
+                                      border: OutlineInputBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(8),
+                                        borderSide: const BorderSide(
+                                            color: AppColors.border),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(8),
+                                        borderSide: const BorderSide(
+                                            color: AppColors.border),
+                                      ),
+                                    ),
+                                    validator: (v) {
+                                      if (v == null || v.trim().isEmpty) {
+                                        return 'Required';
+                                      }
+                                      if (double.tryParse(v.trim()) == null) {
+                                        return 'Invalid';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Issuing bank + Due date
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text("Customer's Issuing Bank",
+                                      style: TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500)),
+                                  const SizedBox(height: 6),
+                                  TextFormField(
+                                    controller: issuingBankCtrl,
+                                    style: const TextStyle(
+                                        color: AppColors.textPrimary),
+                                    decoration: InputDecoration(
+                                      hintText: 'e.g. HBL, Meezan',
+                                      hintStyle: const TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 13),
+                                      filled: true,
+                                      fillColor: AppColors.background,
+                                      border: OutlineInputBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(8),
+                                        borderSide: const BorderSide(
+                                            color: AppColors.border),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(8),
+                                        borderSide: const BorderSide(
+                                            color: AppColors.border),
+                                      ),
+                                    ),
+                                    validator: (v) =>
+                                        (v == null || v.trim().isEmpty)
+                                            ? 'Required'
+                                            : null,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Cheque Due Date',
+                                      style: TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500)),
+                                  const SizedBox(height: 6),
+                                  InkWell(
+                                    onTap: () async {
+                                      final picked = await showDatePicker(
+                                        context: ctx,
+                                        initialDate: chequeDate,
+                                        firstDate: DateTime(2020),
+                                        lastDate: DateTime(2035),
+                                      );
+                                      if (picked != null) {
+                                        setModal(() => chequeDate = picked);
+                                      }
+                                    },
+                                    child: Container(
+                                      height: 48,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.background,
+                                        borderRadius:
+                                            BorderRadius.circular(8),
+                                        border: Border.all(
+                                            color: AppColors.border),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.calendar_today,
+                                              size: 16,
+                                              color: AppColors.bankBlue),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            DateFormat('dd MMM yyyy')
+                                                .format(chequeDate),
+                                            style: const TextStyle(
+                                              color: AppColors.textPrimary,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+
+                        // Deposit To Bank (your company bank) + live balance
+                        const Text('Deposit To (Your Bank Account)',
+                            style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 6),
+                        if (companyBanks.isEmpty)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.bannerBg,
+                              borderRadius: BorderRadius.circular(8),
+                              border:
+                                  Border.all(color: AppColors.bannerBorder),
+                            ),
+                            child: const Text(
+                              'No bank accounts found for this company. Please add a bank in Bank & Cash first.',
+                              style: TextStyle(
+                                  color: AppColors.bannerText, fontSize: 13),
+                            ),
+                          )
+                        else
+                          Container(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: AppColors.background,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: selectedBankId,
+                                isExpanded: true,
+                                dropdownColor: AppColors.cardBg,
+                                items: companyBanks.map((b) {
+                                  final bal = data.getBankBalance(b.id);
+                                  return DropdownMenuItem<String>(
+                                    value: b.id,
+                                    child: Text(
+                                      '${b.name}${b.accountNumber.isNotEmpty ? " • ${b.accountNumber}" : ""}  |  Bal: ${formatCurrency(bal)}',
+                                      style: const TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontSize: 13,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  );
+                                }).toList(),
+                                onChanged: (val) {
+                                  setModal(() => selectedBankId = val);
+                                },
+                              ),
+                            ),
+                          ),
+
+                        if (selectedBankId != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Selected bank balance: ${formatCurrency(data.getBankBalance(selectedBankId!))}',
+                            style: const TextStyle(
+                              color: AppColors.bankBlue,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Note: Bank balance updates when the cheque is due/cleared (Mark Done). Future-dated cheques stay Pending until cleared.',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel',
+                      style: TextStyle(color: AppColors.textSecondary)),
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.sidebarActive,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 12),
+                  ),
+                  icon: _isSaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.save, size: 18),
+                  label: Text(_isSaving ? 'Saving...' : 'Save Cheque'),
+                  onPressed: _isSaving
+                      ? null
+                      : () async {
+                          if (!formKey.currentState!.validate()) return;
+                          if (selectedBankId == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                    'Please select a bank account to deposit into.'),
+                                backgroundColor: AppColors.expenseRed,
+                              ),
+                            );
+                            return;
+                          }
+
+                          final amount =
+                              double.parse(amountCtrl.text.trim());
+                          final now = DateTime.now();
+                          final receipt = PaymentReceipt(
+                            id: now.millisecondsSinceEpoch.toString(),
+                            amount: amount,
+                            date: now,
+                            method: PaymentMethod.cheque,
+                            chequeNumber: chequeNumberCtrl.text.trim(),
+                            bankName: issuingBankCtrl.text.trim(),
+                            chequeDate: chequeDate,
+                            bankId: selectedBankId!, // links to YOUR bank
+                          );
+
+                          final invNum =
+                              'CHQ-${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.millisecondsSinceEpoch.toString().substring(8)}';
+
+                          final newSale = SaleHistory(
+                            id: '${now.millisecondsSinceEpoch}',
+                            invoiceNumber: invNum,
+                            customerName: customerNameCtrl.text.trim(),
+                            customerPhone: customerPhoneCtrl.text.trim(),
+                            customerAddress: '',
+                            items: const [],
+                            totalAmount: amount,
+                            payments: [receipt],
+                            dateOfPurchase: now,
+                            company: _activeCompany,
+                            notes: 'Direct Customer Cheque record',
+                          );
+
+                          setModal(() {});
+                          setState(() => _isSaving = true);
+                          try {
+                            await data.addSale(newSale);
+                            if (mounted) {
+                              Navigator.pop(ctx);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    chequeDate.isAfter(DateTime.now())
+                                        ? 'Cheque saved as Pending. Bank balance will update when marked Done.'
+                                        : 'Cheque saved. Amount added to selected bank balance.',
+                                  ),
+                                  backgroundColor: AppColors.cashGreen,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                      'Please check your internet connection'),
+                                  backgroundColor: AppColors.expenseRed,
+                                ),
+                              );
+                            }
+                          } finally {
+                            if (mounted) {
+                              setState(() => _isSaving = false);
+                            }
+                          }
+                        },
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _depositBankLabel(PaymentReceipt p) {
+    if (p.bankId.isEmpty) return '-';
+    final bank = data.banks.where((b) => b.id == p.bankId).toList();
+    if (bank.isEmpty) return p.bankId;
+    return bank.first.name;
   }
 
   @override
@@ -93,6 +687,7 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
             'saleId': sale.id,
             'invoice': sale.invoiceNumber,
             'customer': sale.customerName,
+            'company': sale.company,
             'payment': payment,
           });
         }
@@ -104,10 +699,12 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
       if (_searchQuery.isEmpty) return true;
       final q = _searchQuery.toLowerCase();
       final PaymentReceipt p = row['payment'];
+      final depositBank = _depositBankLabel(p).toLowerCase();
       return row['invoice'].toString().toLowerCase().contains(q) ||
           row['customer'].toString().toLowerCase().contains(q) ||
           p.chequeNumber.toLowerCase().contains(q) ||
-          p.bankName.toLowerCase().contains(q);
+          p.bankName.toLowerCase().contains(q) ||
+          depositBank.contains(q);
     }).toList();
 
     return LayoutBuilder(
@@ -138,11 +735,28 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Customer Cheques',
-                  style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary)),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text('Customer Cheques',
+                        style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimary)),
+                  ),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.sidebarActive,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                    ),
+                    onPressed: _showAddChequeDialog,
+                    icon: const Icon(Icons.add_card, size: 18),
+                    label: const Text('Add Customer Cheque'),
+                  ),
+                ],
+              ),
               const SizedBox(height: 8),
               Text(
                 'Total Cheques: ${chequeData.length} | Pending: ${data.pendingChequeCount}',
@@ -150,7 +764,7 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
               ),
               const SizedBox(height: 16),
 
-              // 🔍 SEARCH BAR
+              // SEARCH BAR
               SizedBox(
                 width: 360,
                 child: TextField(
@@ -227,7 +841,12 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
                                             color: AppColors.textSecondary,
                                             fontWeight: FontWeight.bold))),
                                 DataColumn(
-                                    label: Text('Bank',
+                                    label: Text('Issuing Bank',
+                                        style: TextStyle(
+                                            color: AppColors.textSecondary,
+                                            fontWeight: FontWeight.bold))),
+                                DataColumn(
+                                    label: Text('Deposit To',
                                         style: TextStyle(
                                             color: AppColors.textSecondary,
                                             fontWeight: FontWeight.bold))),
@@ -269,6 +888,12 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
                                   DataCell(Text(p.bankName,
                                       style: const TextStyle(
                                           color: AppColors.textPrimary))),
+                                  DataCell(Text(
+                                    _depositBankLabel(p),
+                                    style: const TextStyle(
+                                        color: AppColors.bankBlue,
+                                        fontWeight: FontWeight.w600),
+                                  )),
                                   DataCell(Text(formatCurrency(p.amount),
                                       style: const TextStyle(
                                           color: AppColors.textPrimary,
@@ -305,7 +930,6 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
                                       ),
                                     ),
                                   ),
-                                  // ✅ MARK DONE BUTTON
                                   DataCell(
                                     isPending
                                         ? TextButton.icon(
