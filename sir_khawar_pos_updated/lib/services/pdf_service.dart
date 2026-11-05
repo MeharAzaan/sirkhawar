@@ -2,9 +2,9 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-
 import 'package:printing/printing.dart';
 import 'package:intl/intl.dart';
+
 import '../models/quotation.dart';
 import '../models/sale_history.dart';
 import '../models/expense.dart';
@@ -13,7 +13,14 @@ import '../models/employee.dart';
 import '../data/app_data.dart';
 import '../screens/quotation_preview_screen.dart';
 
+// NEW IMPORT needed for the PDF statement
+import '../screens/account_ledger_screen.dart';
+
 class PdfService {
+  
+  // ==========================================
+  // EXISTING FUNCTION: Quotations
+  // ==========================================
   static Future<void> generateAndSavePdf(Quotation quotation) async {
     final pdf = pw.Document();
 
@@ -246,6 +253,9 @@ class PdfService {
     );
   }
 
+  // ==========================================
+  // EXISTING FUNCTION: Activity Report
+  // ==========================================
   static Future<void> generateActivityReport({
     required DateTime start,
     required DateTime end,
@@ -590,6 +600,187 @@ class PdfService {
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdf.save(),
       name: 'ActivityReport_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf',
+    );
+  }
+
+  // ==========================================
+  // NEW FUNCTION: Ledger Statement PDF
+  // ==========================================
+  static Future<void> generateLedgerStatementPdf({
+    required String accountName,
+    required String companyKey,
+    required double openingBalance,
+    required double finalBalance,
+    required List<LedgerItem> items,
+  }) async {
+    final pdf = pw.Document();
+    final formatter = NumberFormat('#,##0.00', 'en_US');
+
+    final companyName = AppCompanies.label(companyKey);
+    final logoPath = AppData().settings.getLogoPath(companyKey);
+
+    pw.MemoryImage? logoImage;
+    if (logoPath.isNotEmpty) {
+      if (logoPath.startsWith('assets/')) {
+        try {
+          final bytes = (await rootBundle.load(logoPath)).buffer.asUint8List();
+          logoImage = pw.MemoryImage(bytes);
+        } catch (_) {}
+      } else {
+        final file = File(logoPath);
+        if (file.existsSync()) {
+          try {
+            final bytes = await file.readAsBytes();
+            logoImage = pw.MemoryImage(bytes);
+          } catch (_) {}
+        }
+      }
+    }
+
+    final totalIn = items.fold(0.0, (sum, i) => sum + i.credit);
+    final totalOut = items.fold(0.0, (sum, i) => sum + i.debit);
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (pw.Context context) {
+          return [
+            // ── HEADER ──
+            if (logoImage != null) ...[
+              pw.Center(
+                child: pw.Image(logoImage, height: 80, fit: pw.BoxFit.contain),
+              ),
+              pw.SizedBox(height: 16),
+            ] else ...[
+              pw.Center(
+                child: pw.Text(
+                  companyName,
+                  style: pw.TextStyle(
+                    fontSize: 20,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.blueGrey900,
+                  ),
+                ),
+              ),
+              pw.SizedBox(height: 16),
+            ],
+            
+            pw.Divider(color: PdfColors.grey300),
+            pw.SizedBox(height: 8),
+
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('ACCOUNT STATEMENT',
+                        style: pw.TextStyle(
+                            fontSize: 18, fontWeight: pw.FontWeight.bold)),
+                    pw.SizedBox(height: 6),
+                    pw.Text('Account: $accountName',
+                        style: pw.TextStyle(
+                            fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                  ],
+                ),
+                pw.Text('Date Generated: ${DateFormat('yyyy-MM-dd').format(DateTime.now())}',
+                    style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+              ],
+            ),
+            pw.SizedBox(height: 16),
+
+            // ── SUMMARY BOX ──
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey100,
+                border: pw.Border.all(color: PdfColors.grey300),
+                borderRadius: pw.BorderRadius.circular(4),
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  _pdfSummaryCol('Opening Balance', formatter.format(openingBalance)),
+                  _pdfSummaryCol('Total Credit (In)', formatter.format(totalIn)),
+                  _pdfSummaryCol('Total Debit (Out)', formatter.format(totalOut)),
+                  _pdfSummaryCol('Closing Balance', formatter.format(finalBalance), isBold: true),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 24),
+
+            // ── TRANSACTIONS TABLE ──
+            pw.TableHelper.fromTextArray(
+              border: null,
+              headerStyle: pw.TextStyle(
+                  fontWeight: pw.FontWeight.bold,
+                  fontSize: 10,
+                  color: PdfColors.grey800),
+              headerDecoration: const pw.BoxDecoration(
+                  color: PdfColors.grey200,
+                  border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey400))),
+              cellHeight: 22,
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              rowDecoration: const pw.BoxDecoration(
+                  border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey300, width: 0.5))),
+              cellAlignments: {
+                0: pw.Alignment.centerLeft,
+                1: pw.Alignment.centerLeft,
+                2: pw.Alignment.centerRight,
+                3: pw.Alignment.centerRight,
+                4: pw.Alignment.centerRight,
+              },
+              columnWidths: {
+                0: const pw.FlexColumnWidth(1.5),
+                1: const pw.FlexColumnWidth(4.0),
+                2: const pw.FlexColumnWidth(2.0),
+                3: const pw.FlexColumnWidth(2.0),
+                4: const pw.FlexColumnWidth(2.5),
+              },
+              headers: ['Date', 'Description', 'Credit (In)', 'Debit (Out)', 'Balance'],
+              data: [
+                // Opening Balance Row
+                [
+                  '-',
+                  'Opening Balance',
+                  '-',
+                  '-',
+                  formatter.format(openingBalance)
+                ],
+                // Transaction Rows
+                ...items.map((item) => [
+                      DateFormat('yyyy-MM-dd').format(item.date),
+                      item.description,
+                      item.credit > 0 ? formatter.format(item.credit) : '-',
+                      item.debit > 0 ? formatter.format(item.debit) : '-',
+                      formatter.format(item.balance),
+                    ]),
+              ],
+            ),
+          ];
+        },
+      ),
+    );
+
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdf.save(),
+      name: '${accountName.replaceAll(' ', '_')}_Statement.pdf',
+    );
+  }
+
+  static pw.Widget _pdfSummaryCol(String title, String amount, {bool isBold = false}) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(title, style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+        pw.SizedBox(height: 4),
+        pw.Text(amount,
+            style: pw.TextStyle(
+                fontSize: 12,
+                fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+      ],
     );
   }
 }

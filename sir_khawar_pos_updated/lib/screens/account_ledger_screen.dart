@@ -4,6 +4,9 @@ import 'package:sir_khawar_pos_updated/data/app_data.dart';
 import 'package:sir_khawar_pos_updated/models/quotation.dart';
 import 'package:sir_khawar_pos_updated/models/bank_account.dart';
 
+// Import your PDF Service
+import 'package:sir_khawar_pos_updated/services/pdf_service.dart'; // Adjust path if your pdf_service is in a different folder
+
 class LedgerItem {
   final DateTime date;
   final String description;
@@ -21,7 +24,6 @@ class LedgerItem {
 }
 
 class AccountLedgerScreen extends StatefulWidget {
-  /// 'cash_energy', 'cash_electric', or a bank ID like 'default_bank'
   final String accountId;
   final String accountName;
 
@@ -58,9 +60,6 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
     return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
   }
 
-  /// Builds the full transaction list using the EXACT same logic as
-  /// AppData.getCashBalance() and AppData.getBankBalance() so that
-  /// the final running balance matches those methods perfectly.
   _LedgerData _computeLedger() {
     final accountId = widget.accountId;
     final bool isEnergyCash = accountId == 'cash_energy';
@@ -68,28 +67,30 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
     final bool isBank = !isEnergyCash && !isElectricCash;
 
     double openingBalance = 0;
+    String companyKey = AppCompanies.energy; // Default
 
     if (isEnergyCash) {
       openingBalance = data.settings.getOpeningCash(AppCompanies.energy);
+      companyKey = AppCompanies.energy;
     } else if (isElectricCash) {
       openingBalance = data.settings.getOpeningCash(AppCompanies.electric);
+      companyKey = AppCompanies.electric;
     } else {
       final bank = data.banks.firstWhere(
         (b) => b.id == accountId,
         orElse: () => BankAccount(
-            id: '', name: 'Unknown', company: '', openingBalance: 0),
+            id: '', name: 'Unknown', company: AppCompanies.energy, openingBalance: 0),
       );
       openingBalance = bank.openingBalance;
+      companyKey = bank.company;
     }
 
     final List<LedgerItem> items = [];
 
-    // ── 1. SALES PAYMENTS (Inflows) ──
-    // Matches AppData.getCashBalance() and AppData.getBankBalance() exactly
+    // 1. SALES PAYMENTS (Inflows)
     for (final sale in data.salesHistory) {
       for (final p in sale.payments) {
         bool include = false;
-
         if (isEnergyCash &&
             sale.company == AppCompanies.energy &&
             p.method == PaymentMethod.cash) {
@@ -110,7 +111,6 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
             include = true;
           }
         }
-
         if (include) {
           items.add(LedgerItem(
             date: p.date,
@@ -122,11 +122,9 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
       }
     }
 
-    // ── 2. EXPENSES (Outflows) ──
-    // Matches AppData.getCashBalance() and AppData.getBankBalance() exactly
+    // 2. EXPENSES (Outflows)
     for (final exp in data.expenses) {
       bool include = false;
-
       if (isEnergyCash &&
           exp.company == AppCompanies.energy &&
           exp.paidFrom == 'cash') {
@@ -140,7 +138,6 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
       if (isBank && data.normalizeBankId(exp.paidFrom) == accountId) {
         include = true;
       }
-
       if (include) {
         items.add(LedgerItem(
           date: exp.date,
@@ -151,11 +148,9 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
       }
     }
 
-    // ── 3. SALARIES (Outflows) ──
-    // Matches AppData.getCashBalance() and AppData.getBankBalance() exactly
+    // 3. SALARIES (Outflows)
     for (final sal in data.salaryRecords) {
       bool include = false;
-
       if (isEnergyCash &&
           sal.company == AppCompanies.energy &&
           sal.method == PaymentMethod.cash) {
@@ -170,7 +165,6 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
         final bId = sal.bankId.isNotEmpty ? sal.bankId : 'default_bank';
         if (bId == accountId) include = true;
       }
-
       if (include) {
         items.add(LedgerItem(
           date: sal.paymentDate,
@@ -181,13 +175,9 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
       }
     }
 
-    // ── 4. PURCHASES (Outflows — banks only) ──
-    // Matches AppData.getBankBalance() exactly.
-    // Cash purchases are shared across companies and NOT deducted per-company
-    // in getCashBalance(), so they do NOT appear in cash ledgers.
+    // 4. PURCHASES (Outflows — banks only)
     for (final pur in data.purchases) {
       bool include = false;
-
       if (isBank && pur.bankId != null && pur.bankId!.isNotEmpty) {
         final pBankId = data.normalizeBankId(pur.bankId!);
         if (pBankId == accountId) {
@@ -201,7 +191,6 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
           }
         }
       }
-
       if (include) {
         final chequeInfo =
             pur.paymentMethod == 'cheque' && pur.chequeNumber.isNotEmpty
@@ -215,10 +204,9 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
       }
     }
 
-    // Sort chronologically (oldest first) for running balance
+    // Chronological for accurate running balance
     items.sort((a, b) => a.date.compareTo(b.date));
 
-    // Compute running balances starting from opening
     double running = openingBalance;
     for (final item in items) {
       running += item.credit;
@@ -226,10 +214,16 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
       item.balance = running;
     }
 
+    final finalBalance = running;
+
+    // Reverse for UI so newest is on top
+    final reversed = items.reversed.toList();
+
     return _LedgerData(
       openingBalance: openingBalance,
-      items: items,
-      finalBalance: running,
+      items: reversed,
+      finalBalance: finalBalance,
+      companyKey: companyKey,
     );
   }
 
@@ -246,173 +240,324 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
         foregroundColor: Colors.white,
         title: Text(widget.accountName),
         elevation: 0,
+        actions: [
+          // ── Export PDF Button ──
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf),
+            tooltip: 'Export Statement to PDF',
+            onPressed: () async {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Generating PDF Statement...'),
+                  backgroundColor: AppColors.bankBlue,
+                  duration: Duration(seconds: 1),
+                ),
+              );
+
+              // We pass the items in REVERSE (which makes them oldest->newest chronological)
+              // because Bank Statements should always be read chronologically down the page.
+              final chronologicalItems = ledger.items.reversed.toList();
+
+              await PdfService.generateLedgerStatementPdf(
+                accountName: widget.accountName,
+                companyKey: ledger.companyKey,
+                openingBalance: ledger.openingBalance,
+                finalBalance: ledger.finalBalance,
+                items: chronologicalItems,
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
-      body: Column(
-        children: [
-          // ── Summary Strip ──
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            color: AppColors.cardBg,
-            child: Row(
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            Row(
               children: [
-                _summaryChip('Opening', ledger.openingBalance, accentColor),
-                const SizedBox(width: 16),
-                _summaryChip(
-                  'In',
+                _summaryCard('Opening', ledger.openingBalance, accentColor),
+                const SizedBox(width: 12),
+                _summaryCard(
+                  'Total In',
                   ledger.items.fold(0.0, (s, i) => s + i.credit),
                   AppColors.cashGreen,
                 ),
-                const SizedBox(width: 16),
-                _summaryChip(
-                  'Out',
+                const SizedBox(width: 12),
+                _summaryCard(
+                  'Total Out',
                   ledger.items.fold(0.0, (s, i) => s + i.debit),
                   AppColors.expenseRed,
                 ),
-                const Spacer(),
-                Text(
-                  'Balance: Rs. ${ledger.finalBalance.toStringAsFixed(2)}',
-                  style: TextStyle(
-                    color: ledger.finalBalance >= 0
-                        ? accentColor
-                        : AppColors.expenseRed,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
+                const SizedBox(width: 12),
+                _summaryCard(
+                  'Balance',
+                  ledger.finalBalance,
+                  ledger.finalBalance >= 0
+                      ? accentColor
+                      : AppColors.expenseRed,
+                  highlight: true,
                 ),
               ],
             ),
-          ),
-          const Divider(height: 1, color: AppColors.border),
-
-          // ── Column Headers ──
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: AppColors.background,
-            child: Row(
-              children: const [
-                SizedBox(width: 72, child: Text('Date', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-                Expanded(flex: 3, child: Text('Description', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-                SizedBox(width: 90, child: Text('Credit (In)', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-                SizedBox(width: 90, child: Text('Debit (Out)', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-                SizedBox(width: 100, child: Text('Balance', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textSecondary))),
-              ],
+            const SizedBox(height: 16),
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: AppColors.cardBg,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.border, width: 1.5),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 14),
+                      color: AppColors.headerBg,
+                      child: const Row(
+                        children: [
+                          SizedBox(
+                            width: 100,
+                            child: Text('Date',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: Colors.white)),
+                          ),
+                          Expanded(
+                            flex: 3,
+                            child: Text('Description',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: Colors.white)),
+                          ),
+                          SizedBox(
+                            width: 130,
+                            child: Text('Credit (In)',
+                                textAlign: TextAlign.right,
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: Colors.white)),
+                          ),
+                          SizedBox(
+                            width: 130,
+                            child: Text('Debit (Out)',
+                                textAlign: TextAlign.right,
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: Colors.white)),
+                          ),
+                          SizedBox(
+                            width: 150,
+                            child: Text('Balance',
+                                textAlign: TextAlign.right,
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: Colors.white)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: ledger.items.isEmpty
+                          ? Column(
+                              children: [
+                                _tableRow(
+                                  date: '—',
+                                  description: 'Opening Balance',
+                                  credit: null,
+                                  debit: null,
+                                  balance: ledger.openingBalance,
+                                  isOpening: true,
+                                  index: 0,
+                                ),
+                                Expanded(
+                                  child: Center(
+                                    child: Text(
+                                      'No transactions yet',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: AppColors.textSecondary
+                                            .withOpacity(0.7),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : ListView.builder(
+                              itemCount: ledger.items.length + 1,
+                              itemBuilder: (context, index) {
+                                if (index < ledger.items.length) {
+                                  final item = ledger.items[index];
+                                  return _tableRow(
+                                    date: _formatDate(item.date),
+                                    description: item.description,
+                                    credit: item.credit > 0
+                                        ? item.credit
+                                        : null,
+                                    debit: item.debit > 0
+                                        ? item.debit
+                                        : null,
+                                    balance: item.balance,
+                                    isOpening: false,
+                                    index: index,
+                                  );
+                                }
+                                return _tableRow(
+                                  date: '—',
+                                  description: 'Opening Balance',
+                                  credit: null,
+                                  debit: null,
+                                  balance: ledger.openingBalance,
+                                  isOpening: true,
+                                  index: index,
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-
-          // ── Transaction List ──
-          Expanded(
-            child: ListView.builder(
-              itemCount: ledger.items.length + 1, // +1 for opening row
-              itemBuilder: (context, index) {
-                if (index == 0) {
-                  return _ledgerRow(
-                    date: '-',
-                    description: 'Opening Balance',
-                    credit: null,
-                    debit: null,
-                    balance: ledger.openingBalance,
-                    isBold: true,
-                    accentColor: accentColor,
-                  );
-                }
-                final item = ledger.items[index - 1];
-                return _ledgerRow(
-                  date: _formatDate(item.date),
-                  description: item.description,
-                  credit: item.credit > 0 ? item.credit : null,
-                  debit: item.debit > 0 ? item.debit : null,
-                  balance: item.balance,
-                  isBold: false,
-                  accentColor: accentColor,
-                );
-              },
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _summaryChip(String label, double value, Color color) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
-        Text(
-          'Rs. ${value.toStringAsFixed(2)}',
-          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color),
+  Widget _summaryCard(String label, double value, Color color,
+      {bool highlight = false}) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: highlight ? color.withOpacity(0.08) : AppColors.cardBg,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: highlight ? color : AppColors.border,
+            width: highlight ? 1.5 : 1,
+          ),
         ),
-      ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary)),
+            const SizedBox(height: 4),
+            Text(
+              'Rs. ${value.toStringAsFixed(2)}',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _ledgerRow({
+  Widget _tableRow({
     required String date,
     required String description,
     required double? credit,
     required double? debit,
     required double balance,
-    required bool isBold,
-    required Color accentColor,
+    required bool isOpening,
+    required int index,
   }) {
+    final bgColor = isOpening
+        ? AppColors.bankBlue.withOpacity(0.06)
+        : (index % 2 == 0 ? AppColors.cardBg : const Color(0xFFF8FAFC));
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.border, width: 0.5)),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      decoration: BoxDecoration(
+        color: bgColor,
+        border: Border(
+          bottom: BorderSide(
+            color: AppColors.border.withOpacity(0.8),
+            width: 1,
+          ),
+        ),
       ),
       child: Row(
         children: [
           SizedBox(
-            width: 72,
-            child: Text(date, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            width: 100,
+            child: Text(
+              date,
+              style: TextStyle(
+                fontSize: 13,
+                color: AppColors.textPrimary,
+                fontWeight:
+                    isOpening ? FontWeight.bold : FontWeight.w500,
+              ),
+            ),
           ),
           Expanded(
             flex: 3,
             child: Text(
               description,
               style: TextStyle(
-                fontSize: 12,
-                color: isBold ? AppColors.textSecondary : AppColors.textPrimary,
-                fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+                fontSize: 13,
+                color: AppColors.textPrimary,
+                fontWeight:
+                    isOpening ? FontWeight.bold : FontWeight.w500,
               ),
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
           ),
           SizedBox(
-            width: 90,
+            width: 130,
             child: Text(
-              credit != null ? 'Rs. ${credit.toStringAsFixed(2)}' : '-',
+              credit != null ? 'Rs. ${credit.toStringAsFixed(2)}' : '—',
               textAlign: TextAlign.right,
               style: TextStyle(
-                fontSize: 12,
-                color: credit != null ? AppColors.cashGreen : AppColors.textSecondary,
-                fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+                fontSize: 14,
+                color: credit != null
+                    ? AppColors.cashGreen
+                    : AppColors.textSecondary,
+                fontWeight:
+                    credit != null ? FontWeight.bold : FontWeight.normal,
               ),
             ),
           ),
           SizedBox(
-            width: 90,
+            width: 130,
             child: Text(
-              debit != null ? 'Rs. ${debit.toStringAsFixed(2)}' : '-',
+              debit != null ? 'Rs. ${debit.toStringAsFixed(2)}' : '—',
               textAlign: TextAlign.right,
               style: TextStyle(
-                fontSize: 12,
-                color: debit != null ? AppColors.expenseRed : AppColors.textSecondary,
-                fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+                fontSize: 14,
+                color: debit != null
+                    ? AppColors.expenseRed
+                    : AppColors.textSecondary,
+                fontWeight:
+                    debit != null ? FontWeight.bold : FontWeight.normal,
               ),
             ),
           ),
           SizedBox(
-            width: 100,
+            width: 150,
             child: Text(
               'Rs. ${balance.toStringAsFixed(2)}',
               textAlign: TextAlign.right,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 14,
                 fontWeight: FontWeight.bold,
-                color: balance >= 0 ? AppColors.textPrimary : AppColors.expenseRed,
+                color: balance >= 0
+                    ? AppColors.textPrimary
+                    : AppColors.expenseRed,
               ),
             ),
           ),
@@ -426,10 +571,12 @@ class _LedgerData {
   final double openingBalance;
   final List<LedgerItem> items;
   final double finalBalance;
+  final String companyKey;
 
   _LedgerData({
     required this.openingBalance,
     required this.items,
     required this.finalBalance,
+    required this.companyKey,
   });
 }

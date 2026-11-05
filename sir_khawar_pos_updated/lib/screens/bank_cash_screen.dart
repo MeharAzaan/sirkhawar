@@ -471,14 +471,6 @@ class _BankCashScreenState extends State<BankCashScreen> {
               AppCompanies.electric,
               AppCompanies.label(AppCompanies.electric),
             ),
-            const SizedBox(height: 32),
-            const Text('Summary Breakdown',
-                style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary)),
-            const SizedBox(height: 16),
-            _buildBreakdown(),
           ],
         ),
       ),
@@ -642,118 +634,6 @@ class _BankCashScreenState extends State<BankCashScreen> {
     );
   }
 
-  Widget _buildBreakdown() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.cardBg,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _cashBreakdownBlock(AppCompanies.energy),
-          const SizedBox(height: 16),
-          _cashBreakdownBlock(AppCompanies.electric),
-          ...data.banks.map((bank) {
-            final bPay = data.salesHistory.fold(0.0, (s, sale) {
-              return s +
-                  sale.payments.where((p) {
-                    final bid =
-                        p.bankId.isNotEmpty ? p.bankId : 'default_bank';
-                    return bid == bank.id &&
-                        (p.method == PaymentMethod.online ||
-                            (p.method == PaymentMethod.cheque &&
-                                p.chequeDate != null &&
-                                !p.chequeDate!.isAfter(DateTime.now())));
-                  }).fold(0.0, (ps, p) => ps + p.amount);
-            });
-            final bExp = data.expenses
-                .where(
-                    (e) => data.normalizeBankId(e.paidFrom) == bank.id)
-                .fold(0.0, (s, e) => s + e.amount);
-            final bSal = data.salaryRecords.where((s) {
-              final bid =
-                  s.bankId.isNotEmpty ? s.bankId : 'default_bank';
-              return bid == bank.id && s.method == PaymentMethod.online;
-            }).fold(0.0, (s, r) => s + r.amount);
-            final bPur = data.purchases.where((p) {
-              if (p.bankId == null || p.bankId!.isEmpty) return false;
-              if (data.normalizeBankId(p.bankId!) != bank.id)
-                return false;
-              if (p.paymentMethod == 'bank') return true;
-              if (p.paymentMethod == 'cheque') {
-                return p.chequeDate == null ||
-                    !p.chequeDate!.isAfter(DateTime.now());
-              }
-              return false;
-            }).fold(0.0, (s, p) => s + p.totalAmount);
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 16),
-                Text(
-                    '${bank.name} (${AppCompanies.label(bank.company)})',
-                    style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.bankBlue)),
-                const SizedBox(height: 6),
-                _row('Opening', bank.openingBalance, AppColors.bankBlue),
-                _row('Payments In', bPay, AppColors.bankBlue),
-                _row('Expenses', -bExp, AppColors.expenseRed),
-                _row('Salaries', -bSal, AppColors.expenseRed),
-                _row('Purchases', -bPur, AppColors.expenseRed),
-                const Divider(height: 20, color: AppColors.border),
-                _row('Balance', data.getBankBalance(bank.id),
-                    AppColors.bankBlue,
-                    bold: true),
-              ],
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
-  Widget _cashBreakdownBlock(String company) {
-    final cashPay = data.salesHistory.where((s) => s.company == company).fold(
-        0.0,
-        (s, sale) =>
-            s +
-            sale.payments
-                .where((p) => p.method == PaymentMethod.cash)
-                .fold(0.0, (ps, p) => ps + p.amount));
-    final cashExp = data.expenses
-        .where((e) => e.company == company && e.paidFrom == 'cash')
-        .fold(0.0, (s, e) => s + e.amount);
-    final cashSal = data.salaryRecords
-        .where((s) => s.company == company && s.method == PaymentMethod.cash)
-        .fold(0.0, (s, r) => s + r.amount);
-    final bal = data.getCashBalance(company);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Cash – ${AppCompanies.label(company)}',
-            style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: AppColors.cashGreen)),
-        const SizedBox(height: 6),
-        _row('Opening Cash', data.settings.getOpeningCash(company),
-            AppColors.cashGreen),
-        _row('Cash Payments In', cashPay, AppColors.cashGreen),
-        _row('Cash Expenses', -cashExp, AppColors.expenseRed),
-        _row('Cash Salaries', -cashSal, AppColors.expenseRed),
-        const Divider(height: 20, color: AppColors.border),
-        _row('Computed Cash', bal, AppColors.cashGreen, bold: true),
-      ],
-    );
-  }
-
   Widget _balanceCard(
       String label, double value, Color color, VoidCallback? onTap) {
     return Expanded(
@@ -787,28 +667,6 @@ class _BankCashScreenState extends State<BankCashScreen> {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _row(String label, double amount, Color color,
-      {bool bold = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label,
-              style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontWeight:
-                      bold ? FontWeight.bold : FontWeight.normal)),
-          Text('Rs. ${amount.toStringAsFixed(2)}',
-              style: TextStyle(
-                  color: color,
-                  fontWeight:
-                      bold ? FontWeight.bold : FontWeight.normal)),
-        ],
       ),
     );
   }
