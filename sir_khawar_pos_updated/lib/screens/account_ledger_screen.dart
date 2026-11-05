@@ -3,9 +3,7 @@ import 'package:sir_khawar_pos_updated/constants/app_colors.dart';
 import 'package:sir_khawar_pos_updated/data/app_data.dart';
 import 'package:sir_khawar_pos_updated/models/quotation.dart';
 import 'package:sir_khawar_pos_updated/models/bank_account.dart';
-
-// Import your PDF Service
-import 'package:sir_khawar_pos_updated/services/pdf_service.dart'; // Adjust path if your pdf_service is in a different folder
+import 'package:sir_khawar_pos_updated/services/pdf_service.dart';
 
 class LedgerItem {
   final DateTime date;
@@ -67,7 +65,7 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
     final bool isBank = !isEnergyCash && !isElectricCash;
 
     double openingBalance = 0;
-    String companyKey = AppCompanies.energy; // Default
+    String companyKey = AppCompanies.energy;
 
     if (isEnergyCash) {
       openingBalance = data.settings.getOpeningCash(AppCompanies.energy);
@@ -79,7 +77,10 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
       final bank = data.banks.firstWhere(
         (b) => b.id == accountId,
         orElse: () => BankAccount(
-            id: '', name: 'Unknown', company: AppCompanies.energy, openingBalance: 0),
+            id: '',
+            name: 'Unknown',
+            company: AppCompanies.energy,
+            openingBalance: 0),
       );
       openingBalance = bank.openingBalance;
       companyKey = bank.company;
@@ -215,8 +216,6 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
     }
 
     final finalBalance = running;
-
-    // Reverse for UI so newest is on top
     final reversed = items.reversed.toList();
 
     return _LedgerData(
@@ -241,7 +240,6 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
         title: Text(widget.accountName),
         elevation: 0,
         actions: [
-          // ── Export PDF Button ──
           IconButton(
             icon: const Icon(Icons.picture_as_pdf),
             tooltip: 'Export Statement to PDF',
@@ -254,8 +252,6 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
                 ),
               );
 
-              // We pass the items in REVERSE (which makes them oldest->newest chronological)
-              // because Bank Statements should always be read chronologically down the page.
               final chronologicalItems = ledger.items.reversed.toList();
 
               await PdfService.generateLedgerStatementPdf(
@@ -274,6 +270,7 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
+            // ── Summary Cards ──
             Row(
               children: [
                 _summaryCard('Opening', ledger.openingBalance, accentColor),
@@ -301,6 +298,8 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
               ],
             ),
             const SizedBox(height: 16),
+
+            // ── Table Card ──
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
@@ -311,6 +310,45 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
                 clipBehavior: Clip.antiAlias,
                 child: Column(
                   children: [
+                    // ── FIXED Opening Balance (never scrolls) ──
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: accentColor.withOpacity(0.08),
+                        border: Border(
+                          bottom: BorderSide(
+                            color: AppColors.border.withOpacity(0.8),
+                            width: 1,
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Opening Balance',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            'Rs. ${ledger.openingBalance.toStringAsFixed(2)}',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: accentColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // ── FIXED Column Headers (never scrolls) ──
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 16, vertical: 14),
@@ -363,59 +401,34 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
                         ],
                       ),
                     ),
+
+                    // ── SCROLLABLE Transactions only ──
                     Expanded(
                       child: ledger.items.isEmpty
-                          ? Column(
-                              children: [
-                                _tableRow(
-                                  date: '—',
-                                  description: 'Opening Balance',
-                                  credit: null,
-                                  debit: null,
-                                  balance: ledger.openingBalance,
-                                  isOpening: true,
-                                  index: 0,
+                          ? Center(
+                              child: Text(
+                                'No transactions yet',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: AppColors.textSecondary
+                                      .withOpacity(0.7),
                                 ),
-                                Expanded(
-                                  child: Center(
-                                    child: Text(
-                                      'No transactions yet',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: AppColors.textSecondary
-                                            .withOpacity(0.7),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
+                              ),
                             )
                           : ListView.builder(
-                              itemCount: ledger.items.length + 1,
+                              itemCount: ledger.items.length,
                               itemBuilder: (context, index) {
-                                if (index < ledger.items.length) {
-                                  final item = ledger.items[index];
-                                  return _tableRow(
-                                    date: _formatDate(item.date),
-                                    description: item.description,
-                                    credit: item.credit > 0
-                                        ? item.credit
-                                        : null,
-                                    debit: item.debit > 0
-                                        ? item.debit
-                                        : null,
-                                    balance: item.balance,
-                                    isOpening: false,
-                                    index: index,
-                                  );
-                                }
+                                final item = ledger.items[index];
                                 return _tableRow(
-                                  date: '—',
-                                  description: 'Opening Balance',
-                                  credit: null,
-                                  debit: null,
-                                  balance: ledger.openingBalance,
-                                  isOpening: true,
+                                  date: _formatDate(item.date),
+                                  description: item.description,
+                                  credit: item.credit > 0
+                                      ? item.credit
+                                      : null,
+                                  debit: item.debit > 0
+                                      ? item.debit
+                                      : null,
+                                  balance: item.balance,
                                   index: index,
                                 );
                               },
@@ -471,12 +484,10 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
     required double? credit,
     required double? debit,
     required double balance,
-    required bool isOpening,
     required int index,
   }) {
-    final bgColor = isOpening
-        ? AppColors.bankBlue.withOpacity(0.06)
-        : (index % 2 == 0 ? AppColors.cardBg : const Color(0xFFF8FAFC));
+    final bgColor =
+        index % 2 == 0 ? AppColors.cardBg : const Color(0xFFF8FAFC);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
@@ -495,11 +506,10 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
             width: 100,
             child: Text(
               date,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 13,
                 color: AppColors.textPrimary,
-                fontWeight:
-                    isOpening ? FontWeight.bold : FontWeight.w500,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
@@ -507,11 +517,10 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
             flex: 3,
             child: Text(
               description,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 13,
                 color: AppColors.textPrimary,
-                fontWeight:
-                    isOpening ? FontWeight.bold : FontWeight.w500,
+                fontWeight: FontWeight.w500,
               ),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,

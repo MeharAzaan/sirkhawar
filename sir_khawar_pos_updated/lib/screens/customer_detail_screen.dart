@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -76,9 +75,17 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     final bankNameCtrl = TextEditingController();
     final txnCtrl = TextEditingController();
     PaymentMethod method = PaymentMethod.cash;
-    String selectedBankId = data.banks.isNotEmpty
-        ? data.banks.first.id
-        : 'default_bank'; // 👈 NEW
+
+    // Filter company & banks
+    String selectedCompany =
+        (sale.company.isNotEmpty) ? sale.company : 'energy';
+    final initialMatchingBanks = data.banks
+        .where((b) => b.company == selectedCompany)
+        .toList();
+    String selectedBankId = initialMatchingBanks.isNotEmpty
+        ? initialMatchingBanks.first.id
+        : (data.banks.isNotEmpty ? data.banks.first.id : 'default_bank');
+
     DateTime? chequeDate;
     bool saving = false;
 
@@ -88,6 +95,16 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
+            final filteredBanks = data.banks
+                .where((b) => b.company == selectedCompany)
+                .toList();
+
+            // Fallback selection if current selectedBankId is invalid for company
+            if (filteredBanks.isNotEmpty &&
+                !filteredBanks.any((b) => b.id == selectedBankId)) {
+              selectedBankId = filteredBanks.first.id;
+            }
+
             return AlertDialog(
               backgroundColor: AppColors.cardBg,
               title: Text('Add Payment — ${sale.invoiceNumber}',
@@ -141,16 +158,52 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                           }
                         },
                       ),
-                      // 👇 NEW: Bank picker for online payments (money goes INTO this bank)
+                      // Bank picker for online payments
                       if (method == PaymentMethod.online) ...[
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
-                          value: selectedBankId,
+                          value: selectedCompany,
+                          decoration: const InputDecoration(
+                            labelText: 'Company',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'energy',
+                              child: Text('Alternative Energy Solution'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'electric',
+                              child: Text('Alternative Electric Solutions'),
+                            ),
+                          ],
+                          onChanged: (v) {
+                            if (v != null) {
+                              setDialogState(() {
+                                selectedCompany = v;
+                                final updatedBanks = data.banks
+                                    .where((b) => b.company == selectedCompany)
+                                    .toList();
+                                if (updatedBanks.isNotEmpty) {
+                                  selectedBankId = updatedBanks.first.id;
+                                }
+                              });
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          value: filteredBanks
+                                  .any((b) => b.id == selectedBankId)
+                              ? selectedBankId
+                              : (filteredBanks.isNotEmpty
+                                  ? filteredBanks.first.id
+                                  : null),
                           decoration: const InputDecoration(
                             labelText: 'Received In Bank',
                             border: OutlineInputBorder(),
                           ),
-                          items: data.banks
+                          items: filteredBanks
                               .map((b) => DropdownMenuItem(
                                     value: b.id,
                                     child: Text(b.name),
@@ -188,15 +241,50 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                             border: OutlineInputBorder(),
                           ),
                         ),
-                        // 👇 NEW: Bank picker for cheque (which of YOUR banks will it deposit into)
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
-                          value: selectedBankId,
+                          value: selectedCompany,
+                          decoration: const InputDecoration(
+                            labelText: 'Company',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'energy',
+                              child: Text('Alternative Energy Solution'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'electric',
+                              child: Text('Alternative Electric Solutions'),
+                            ),
+                          ],
+                          onChanged: (v) {
+                            if (v != null) {
+                              setDialogState(() {
+                                selectedCompany = v;
+                                final updatedBanks = data.banks
+                                    .where((b) => b.company == selectedCompany)
+                                    .toList();
+                                if (updatedBanks.isNotEmpty) {
+                                  selectedBankId = updatedBanks.first.id;
+                                }
+                              });
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          value: filteredBanks
+                                  .any((b) => b.id == selectedBankId)
+                              ? selectedBankId
+                              : (filteredBanks.isNotEmpty
+                                  ? filteredBanks.first.id
+                                  : null),
                           decoration: const InputDecoration(
                             labelText: 'Deposit Into Bank',
                             border: OutlineInputBorder(),
                           ),
-                          items: data.banks
+                          items: filteredBanks
                               .map((b) => DropdownMenuItem(
                                     value: b.id,
                                     child: Text(b.name),
@@ -272,6 +360,18 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                             return;
                           }
 
+                          if (method != PaymentMethod.cash &&
+                              filteredBanks.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                    'No bank account found for this company. Please add a bank account first.'),
+                                backgroundColor: AppColors.expenseRed,
+                              ),
+                            );
+                            return;
+                          }
+
                           setDialogState(() => saving = true);
                           try {
                             final payment = PaymentReceipt(
@@ -290,7 +390,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                                   : null,
                               bankId: method != PaymentMethod.cash
                                   ? selectedBankId
-                                  : 'default_bank', // 👈 NEW
+                                  : 'default_bank',
                             );
 
                             await data.addInstallmentPayment(
@@ -618,11 +718,11 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     final quotations = _customerQuotations;
 
     final totalPurchases =
-        sales.fold(0.0, (sum, s) => sum + s.totalAmount);
+        sales.fold(0.0, (sum1, s) => sum1 + s.totalAmount);
     final totalPaid = sales.fold(
         0.0,
-        (sum, s) =>
-            sum + s.payments.fold(0.0, (ps, p) => ps + p.amount));
+        (sum2, s) =>
+            sum2 + s.payments.fold(0.0, (ps, p) => ps + p.amount));
     final outstanding = totalPurchases - totalPaid;
 
     return Scaffold(

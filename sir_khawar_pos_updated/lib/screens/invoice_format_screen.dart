@@ -34,7 +34,6 @@ class InvoiceFormatScreen extends StatelessWidget {
     }
 
     final pdf = pw.Document();
-    final bool isPaid = invoice.isFullyPaid;
     final double paid = invoice.paidAmount;
     final double remaining = invoice.remainingAmount;
     final double discount = _totalDiscount;
@@ -81,7 +80,7 @@ class InvoiceFormatScreen extends StatelessWidget {
                   // DATE + INVOICE #
                   pw.Align(
                     alignment: pw.Alignment.centerRight,
-                    child: pw.Container(
+                    child: pw.SizedBox(
                       width: 200,
                       child: pw.Table(
                         border: pw.TableBorder.all(width: 1),
@@ -226,7 +225,7 @@ class InvoiceFormatScreen extends StatelessWidget {
                   // ===== TOTALS TABLE (Total Bill / Discount / Paid / Balance) =====
                   pw.Align(
                     alignment: pw.Alignment.centerRight,
-                    child: pw.Container(
+                    child: pw.SizedBox(
                       width: 280,
                       child: pw.Table(
                         border: pw.TableBorder.all(width: 1),
@@ -306,34 +305,6 @@ class InvoiceFormatScreen extends StatelessWidget {
                   ),
                 ],
               ),
-
-              // ===== BILL PAID STAMP =====
-              if (isPaid)
-                pw.Positioned(
-                  top: 280,
-                  left: 150,
-                  child: pw.Transform.rotate(
-                    angle: -0.4,
-                    child: pw.Container(
-                      padding: const pw.EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 8),
-                      decoration: pw.BoxDecoration(
-                        border: pw.Border.all(
-                          color: PdfColors.green,
-                          width: 3,
-                        ),
-                      ),
-                      child: pw.Text(
-                        'BILL PAID',
-                        style: pw.TextStyle(
-                          color: PdfColors.green,
-                          fontSize: 36,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
             ],
           );
         },
@@ -395,7 +366,6 @@ class InvoiceFormatScreen extends StatelessWidget {
     final settings = AppData().settings;
     final DateFormat dateFormat = DateFormat('dd MMM, yy');
     const Color headerColor = AppColors.background;
-    final bool isPaid = invoice.isFullyPaid;
     final double paid = invoice.paidAmount;
     final double remaining = invoice.remainingAmount;
     final double discount = _totalDiscount;
@@ -722,32 +692,6 @@ class InvoiceFormatScreen extends StatelessWidget {
                     const SizedBox(height: 24),
                   ],
                 ),
-
-                // ===== BILL PAID STAMP =====
-                if (isPaid)
-                  Positioned(
-                    top: 320,
-                    left: 200,
-                    child: Transform.rotate(
-                      angle: -0.4,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 24, vertical: 10),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: AppColors.cashGreen, width: 3),
-                        ),
-                        child: const Text(
-                          'BILL PAID',
-                          style: TextStyle(
-                            color: AppColors.cashGreen,
-                            fontSize: 42,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 2,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
               ],
             ),
           ),
