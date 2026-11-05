@@ -239,7 +239,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
     try {
       final product = Product(
-        id: isEdit ? existing!.id : idCtrl.text.trim(),
+        id: isEdit ? existing.id : idCtrl.text.trim(),
         name: nameCtrl.text.trim(),
         category: categoryCtrl.text.trim(),
         price: price,
