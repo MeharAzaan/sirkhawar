@@ -14,12 +14,18 @@ class CustomerChequesScreen extends StatefulWidget {
 class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
   final data = AppData();
   final TextEditingController _searchController = TextEditingController();
+  
   String _searchQuery = '';
   bool _isSaving = false;
+
+  // Cached lists to save memory/CPU on low RAM devices
+  List<Map<String, dynamic>> _allCheques = [];
+  List<Map<String, dynamic>> _filteredCheques = [];
 
   @override
   void initState() {
     super.initState();
+    _prepareData(); // Load data once on start
     data.addListener(_onDataChanged);
   }
 
@@ -31,6 +37,46 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
   }
 
   void _onDataChanged() {
+    if (mounted) {
+      _prepareData(); // Rebuild cache only when database changes
+    }
+  }
+
+  // --- OPTIMIZATION: Process data outside the build method ---
+  void _prepareData() {
+    final List<Map<String, dynamic>> list = [];
+    for (var sale in data.salesHistory) {
+      for (var payment in sale.payments) {
+        if (payment.method == PaymentMethod.cheque) {
+          list.add({
+            'saleId': sale.id,
+            'invoice': sale.invoiceNumber,
+            'customer': sale.customerName,
+            'company': sale.company,
+            'payment': payment,
+          });
+        }
+      }
+    }
+    _allCheques = list;
+    _applyFilter();
+  }
+
+  void _applyFilter() {
+    if (_searchQuery.isEmpty) {
+      _filteredCheques = List.from(_allCheques);
+    } else {
+      final q = _searchQuery.toLowerCase();
+      _filteredCheques = _allCheques.where((row) {
+        final PaymentReceipt p = row['payment'];
+        final depositBank = _depositBankLabel(p).toLowerCase();
+        return row['invoice'].toString().toLowerCase().contains(q) ||
+            row['customer'].toString().toLowerCase().contains(q) ||
+            p.chequeNumber.toLowerCase().contains(q) ||
+            p.bankName.toLowerCase().contains(q) ||
+            depositBank.contains(q);
+      }).toList();
+    }
     if (mounted) setState(() {});
   }
 
@@ -38,7 +84,7 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
     return 'Rs. ${NumberFormat('#,##0.00', 'en_US').format(amount)}';
   }
 
-  /// Active company for new cheque records ('energy' or 'electric')
+  /// Active company for new cheque records
   String get _activeCompany {
     if (data.selectedCompanyFilter == AppCompanies.electric) {
       return AppCompanies.electric;
@@ -46,6 +92,7 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
     return AppCompanies.energy;
   }
 
+  // Lazy generation to save memory
   List<String> _uniqueCustomerNames() {
     final names = <String>{};
     for (final sale in data.salesHistory) {
@@ -58,8 +105,7 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
         names.add(q.customerName.trim());
       }
     }
-    final list = names.toList()..sort();
-    return list;
+    return names.toList()..sort();
   }
 
   Future<void> _markDone(String saleId, String paymentId) async {
@@ -127,13 +173,12 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
     final issuingBankCtrl = TextEditingController();
     final amountCtrl = TextEditingController();
     DateTime chequeDate = DateTime.now();
-    String? selectedBankId;
 
-    final companyBanks =
-        data.banks.where((b) => b.company == _activeCompany).toList();
-    if (companyBanks.isNotEmpty) {
-      selectedBankId = companyBanks.first.id;
-    }
+    String selectedCompany = _activeCompany;
+    final initialCompanyBanks =
+        data.banks.where((b) => b.company == selectedCompany).toList();
+    String? selectedBankId =
+        initialCompanyBanks.isNotEmpty ? initialCompanyBanks.first.id : null;
 
     final customers = _uniqueCustomerNames();
 
@@ -143,6 +188,17 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setModal) {
+            final companyBanks = data.banks
+                .where((b) => b.company == selectedCompany)
+                .toList();
+
+            if (companyBanks.isNotEmpty &&
+                !companyBanks.any((b) => b.id == selectedBankId)) {
+              selectedBankId = companyBanks.first.id;
+            } else if (companyBanks.isEmpty) {
+              selectedBankId = null;
+            }
+
             return AlertDialog(
               backgroundColor: AppColors.cardBg,
               shape: RoundedRectangleBorder(
@@ -177,12 +233,58 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Company: ${_activeCompany == AppCompanies.energy ? "Alternative Energy Solution" : "Alternative Electric Solutions Pvt. Ltd."}',
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 12,
+                        // Company Selection Dropdown
+                        const Text('Company',
+                            style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 6),
+                        DropdownButtonFormField<String>(
+                          value: selectedCompany,
+                          dropdownColor: AppColors.cardBg,
+                          style: const TextStyle(color: AppColors.textPrimary),
+                          decoration: InputDecoration(
+                            filled: true,
+                            fillColor: AppColors.background,
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 12),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide:
+                                  const BorderSide(color: AppColors.border),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide:
+                                  const BorderSide(color: AppColors.border),
+                            ),
                           ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: AppCompanies.energy,
+                              child: Text('Alternative Energy Solution',
+                                  style: TextStyle(color: AppColors.textPrimary)),
+                            ),
+                            DropdownMenuItem(
+                              value: AppCompanies.electric,
+                              child: Text('Alternative Electric Solutions',
+                                  style: TextStyle(color: AppColors.textPrimary)),
+                            ),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) {
+                              setModal(() {
+                                selectedCompany = val;
+                                final updatedBanks = data.banks
+                                    .where((b) => b.company == selectedCompany)
+                                    .toList();
+                                selectedBankId = updatedBanks.isNotEmpty
+                                    ? updatedBanks.first.id
+                                    : null;
+                              });
+                            }
+                          },
                         ),
                         const SizedBox(height: 14),
 
@@ -624,7 +726,7 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
                             totalAmount: amount,
                             payments: [receipt],
                             dateOfPurchase: now,
-                            company: _activeCompany,
+                            company: selectedCompany,
                             notes: 'Direct Customer Cheque record',
                           );
 
@@ -679,34 +781,6 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final List<Map<String, dynamic>> chequeData = [];
-    for (var sale in data.salesHistory) {
-      for (var payment in sale.payments) {
-        if (payment.method == PaymentMethod.cheque) {
-          chequeData.add({
-            'saleId': sale.id,
-            'invoice': sale.invoiceNumber,
-            'customer': sale.customerName,
-            'company': sale.company,
-            'payment': payment,
-          });
-        }
-      }
-    }
-
-    // Search filter
-    final filtered = chequeData.where((row) {
-      if (_searchQuery.isEmpty) return true;
-      final q = _searchQuery.toLowerCase();
-      final PaymentReceipt p = row['payment'];
-      final depositBank = _depositBankLabel(p).toLowerCase();
-      return row['invoice'].toString().toLowerCase().contains(q) ||
-          row['customer'].toString().toLowerCase().contains(q) ||
-          p.chequeNumber.toLowerCase().contains(q) ||
-          p.bankName.toLowerCase().contains(q) ||
-          depositBank.contains(q);
-    }).toList();
-
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 1024) {
@@ -759,7 +833,7 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Total Cheques: ${chequeData.length} | Pending: ${data.pendingChequeCount}',
+                'Total Cheques: ${_allCheques.length} | Pending: ${data.pendingChequeCount}',
                 style: const TextStyle(color: AppColors.textSecondary),
               ),
               const SizedBox(height: 16),
@@ -781,7 +855,8 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
                                 color: AppColors.textSecondary),
                             onPressed: () {
                               _searchController.clear();
-                              setState(() => _searchQuery = '');
+                              _searchQuery = '';
+                              _applyFilter();
                             },
                           )
                         : null,
@@ -801,13 +876,17 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
                         horizontal: 12, vertical: 10),
                     isDense: true,
                   ),
-                  onChanged: (v) => setState(() => _searchQuery = v.trim()),
+                  onChanged: (v) {
+                    _searchQuery = v.trim();
+                    _applyFilter();
+                  },
                 ),
               ),
               const SizedBox(height: 20),
 
+              // OPTIMIZED RENDER
               Expanded(
-                child: filtered.isEmpty
+                child: _filteredCheques.isEmpty
                     ? const Center(
                         child: Text('No cheque payments recorded.',
                             style: TextStyle(color: AppColors.textSecondary)))
@@ -871,7 +950,7 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
                                             color: AppColors.textSecondary,
                                             fontWeight: FontWeight.bold))),
                               ],
-                              rows: filtered.map((dataRow) {
+                              rows: _filteredCheques.map((dataRow) {
                                 final PaymentReceipt p = dataRow['payment'];
                                 final isPending = p.chequeDate != null &&
                                     p.chequeDate!.isAfter(DateTime.now());

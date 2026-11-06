@@ -269,52 +269,56 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                         }
                       },
                     ),
-                    // Bank picker with Company filter when method is online
-                    if (selectedMethod == PaymentMethod.online) ...[
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        dropdownColor: AppColors.cardBg,
-                        value: selectedCompany,
-                        style: const TextStyle(color: AppColors.textPrimary),
-                        decoration: const InputDecoration(
-                          labelText: 'Company',
-                          labelStyle:
-                              TextStyle(color: AppColors.textSecondary),
-                          border: OutlineInputBorder(),
-                          enabledBorder: OutlineInputBorder(
-                            borderSide: BorderSide(color: AppColors.border),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderSide: BorderSide(
-                                color: AppColors.sidebarActive, width: 1.5),
-                          ),
+                    const SizedBox(height: 12),
+                    // Company Selection for Cash, Bank/Online & Cheque
+                    DropdownButtonFormField<String>(
+                      dropdownColor: AppColors.cardBg,
+                      value: selectedCompany,
+                      style: const TextStyle(color: AppColors.textPrimary),
+                      decoration: InputDecoration(
+                        labelText: selectedMethod == PaymentMethod.cash
+                            ? 'Pay From Cash Drawer'
+                            : 'Company',
+                        labelStyle:
+                            const TextStyle(color: AppColors.textSecondary),
+                        border: const OutlineInputBorder(),
+                        enabledBorder: const OutlineInputBorder(
+                          borderSide: BorderSide(color: AppColors.border),
                         ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'energy',
-                            child: Text('Alternative Energy Solution',
-                                style: TextStyle(color: AppColors.textPrimary)),
-                          ),
-                          DropdownMenuItem(
-                            value: 'electric',
-                            child: Text('Alternative Electric Solutions',
-                                style: TextStyle(color: AppColors.textPrimary)),
-                          ),
-                        ],
-                        onChanged: (v) {
-                          if (v != null) {
-                            setDialogState(() {
-                              selectedCompany = v;
-                              final updatedBanks = data.banks
-                                  .where((b) => b.company == selectedCompany)
-                                  .toList();
-                              if (updatedBanks.isNotEmpty) {
-                                selectedBankId = updatedBanks.first.id;
-                              }
-                            });
-                          }
-                        },
+                        focusedBorder: const OutlineInputBorder(
+                          borderSide: BorderSide(
+                              color: AppColors.sidebarActive, width: 1.5),
+                        ),
                       ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'energy',
+                          child: Text('Alternative Energy Solution',
+                              style: TextStyle(color: AppColors.textPrimary)),
+                        ),
+                        DropdownMenuItem(
+                          value: 'electric',
+                          child: Text('Alternative Electric Solutions',
+                              style: TextStyle(color: AppColors.textPrimary)),
+                        ),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) {
+                          setDialogState(() {
+                            selectedCompany = v;
+                            final updatedBanks = data.banks
+                                .where((b) => b.company == selectedCompany)
+                                .toList();
+                            if (updatedBanks.isNotEmpty) {
+                              selectedBankId = updatedBanks.first.id;
+                            }
+                          });
+                        }
+                      },
+                    ),
+                    // Bank picker for Bank/Online & Cheque payments
+                    if (selectedMethod == PaymentMethod.online ||
+                        selectedMethod == PaymentMethod.cheque) ...[
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
                         dropdownColor: AppColors.cardBg,
@@ -325,15 +329,17 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                                 ? filteredBanks.first.id
                                 : null),
                         style: const TextStyle(color: AppColors.textPrimary),
-                        decoration: const InputDecoration(
-                          labelText: 'Pay From Bank',
+                        decoration: InputDecoration(
+                          labelText: selectedMethod == PaymentMethod.cheque
+                              ? 'Pay From Bank (Cheque)'
+                              : 'Pay From Bank',
                           labelStyle:
-                              TextStyle(color: AppColors.textSecondary),
-                          border: OutlineInputBorder(),
-                          enabledBorder: OutlineInputBorder(
+                              const TextStyle(color: AppColors.textSecondary),
+                          border: const OutlineInputBorder(),
+                          enabledBorder: const OutlineInputBorder(
                             borderSide: BorderSide(color: AppColors.border),
                           ),
-                          focusedBorder: OutlineInputBorder(
+                          focusedBorder: const OutlineInputBorder(
                             borderSide: BorderSide(
                                 color: AppColors.sidebarActive, width: 1.5),
                           ),
@@ -355,7 +361,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                       const SizedBox(height: 8),
                       if (filteredBanks.any((b) => b.id == selectedBankId))
                         Text(
-                          'Available: Rs. ${data.getBankBalance(selectedBankId).toStringAsFixed(2)}',
+                          'Available Balance: Rs. ${data.getBankBalance(selectedBankId).toStringAsFixed(2)}',
                           style: TextStyle(
                             color: data.getBankBalance(selectedBankId) > 0
                                 ? AppColors.cashGreen
@@ -485,7 +491,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                         final amount = double.tryParse(amountCtrl.text);
                         if (amount == null || amount <= 0) return;
 
-                        if (selectedMethod == PaymentMethod.online) {
+                        if (selectedMethod != PaymentMethod.cash) {
                           if (filteredBanks.isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
@@ -527,7 +533,8 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                             paymentDate: selectedDate,
                             method: selectedMethod,
                             notes: notesCtrl.text.trim(),
-                            bankId: selectedMethod == PaymentMethod.online
+                            company: selectedCompany,
+                            bankId: selectedMethod != PaymentMethod.cash
                                 ? selectedBankId
                                 : 'default_bank',
                           );
