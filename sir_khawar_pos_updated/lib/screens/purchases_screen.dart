@@ -5,6 +5,7 @@ import 'package:sir_khawar_pos_updated/data/app_data.dart';
 
 import 'create_purchase_screen.dart';
 import 'purchase_detail_screen.dart';
+import 'vendor_purchase_history_screen.dart';
 
 class PurchasesScreen extends StatefulWidget {
   const PurchasesScreen({super.key});
@@ -51,6 +52,21 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
         backgroundColor: AppColors.headerBg,
         foregroundColor: AppColors.cardBg,
         actions: [
+          ElevatedButton.icon(
+            icon: const Icon(Icons.history),
+            label: const Text('Vendor History'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.bankBlue,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const VendorPurchaseHistoryScreen(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
           ElevatedButton.icon(
             icon: const Icon(Icons.add_shopping_cart),
             label: const Text('New Purchase'),

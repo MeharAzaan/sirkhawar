@@ -604,7 +604,7 @@ class PdfService {
   }
 
   // ==========================================
-  // NEW FUNCTION: Ledger Statement PDF
+  // Ledger Statement PDF (supports date period)
   // ==========================================
   static Future<void> generateLedgerStatementPdf({
     required String accountName,
@@ -612,9 +612,13 @@ class PdfService {
     required double openingBalance,
     required double finalBalance,
     required List<LedgerItem> items,
+    String periodLabel = 'All Time',
+    DateTime? startDate,
+    DateTime? endDate,
   }) async {
     final pdf = pw.Document();
     final formatter = NumberFormat('#,##0.00', 'en_US');
+    final dateFmt = DateFormat('yyyy-MM-dd');
 
     final companyName = AppCompanies.label(companyKey);
     final logoPath = AppData().settings.getLogoPath(companyKey);
@@ -639,6 +643,20 @@ class PdfService {
 
     final totalIn = items.fold(0.0, (sum, i) => sum + i.credit);
     final totalOut = items.fold(0.0, (sum, i) => sum + i.debit);
+
+    // Human-readable period line for the PDF header
+    String periodText;
+    if (startDate != null && endDate != null) {
+      periodText =
+          '$periodLabel  (${dateFmt.format(startDate)}  to  ${dateFmt.format(endDate)})';
+    } else if (periodLabel != 'All Time') {
+      periodText = periodLabel;
+    } else {
+      periodText = 'All Time';
+    }
+
+    final openingLabel =
+        (startDate != null) ? 'Opening Balance (as of period start)' : 'Opening Balance';
 
     pdf.addPage(
       pw.MultiPage(
@@ -665,13 +683,13 @@ class PdfService {
               ),
               pw.SizedBox(height: 16),
             ],
-            
+
             pw.Divider(color: PdfColors.grey300),
             pw.SizedBox(height: 8),
 
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -683,10 +701,16 @@ class PdfService {
                     pw.Text('Account: $accountName',
                         style: pw.TextStyle(
                             fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                    pw.SizedBox(height: 4),
+                    pw.Text('Period: $periodText',
+                        style: const pw.TextStyle(
+                            fontSize: 10, color: PdfColors.grey700)),
                   ],
                 ),
-                pw.Text('Date Generated: ${DateFormat('yyyy-MM-dd').format(DateTime.now())}',
-                    style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                pw.Text(
+                    'Date Generated: ${dateFmt.format(DateTime.now())}',
+                    style: const pw.TextStyle(
+                        fontSize: 10, color: PdfColors.grey700)),
               ],
             ),
             pw.SizedBox(height: 16),
@@ -702,63 +726,89 @@ class PdfService {
               child: pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  _pdfSummaryCol('Opening Balance', formatter.format(openingBalance)),
-                  _pdfSummaryCol('Total Credit (In)', formatter.format(totalIn)),
-                  _pdfSummaryCol('Total Debit (Out)', formatter.format(totalOut)),
-                  _pdfSummaryCol('Closing Balance', formatter.format(finalBalance), isBold: true),
+                  _pdfSummaryCol(
+                      openingLabel, formatter.format(openingBalance)),
+                  _pdfSummaryCol(
+                      'Total Credit (In)', formatter.format(totalIn)),
+                  _pdfSummaryCol(
+                      'Total Debit (Out)', formatter.format(totalOut)),
+                  _pdfSummaryCol('Closing Balance',
+                      formatter.format(finalBalance),
+                      isBold: true),
                 ],
               ),
             ),
             pw.SizedBox(height: 24),
 
             // ── TRANSACTIONS TABLE ──
-            pw.TableHelper.fromTextArray(
-              border: null,
-              headerStyle: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: 10,
-                  color: PdfColors.grey800),
-              headerDecoration: const pw.BoxDecoration(
-                  color: PdfColors.grey200,
-                  border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey400))),
-              cellHeight: 22,
-              cellStyle: const pw.TextStyle(fontSize: 9),
-              rowDecoration: const pw.BoxDecoration(
-                  border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey300, width: 0.5))),
-              cellAlignments: {
-                0: pw.Alignment.centerLeft,
-                1: pw.Alignment.centerLeft,
-                2: pw.Alignment.centerRight,
-                3: pw.Alignment.centerRight,
-                4: pw.Alignment.centerRight,
-              },
-              columnWidths: {
-                0: const pw.FlexColumnWidth(1.5),
-                1: const pw.FlexColumnWidth(4.0),
-                2: const pw.FlexColumnWidth(2.0),
-                3: const pw.FlexColumnWidth(2.0),
-                4: const pw.FlexColumnWidth(2.5),
-              },
-              headers: ['Date', 'Description', 'Credit (In)', 'Debit (Out)', 'Balance'],
-              data: [
-                // Opening Balance Row
-                [
-                  '-',
-                  'Opening Balance',
-                  '-',
-                  '-',
-                  formatter.format(openingBalance)
+            if (items.isEmpty)
+              pw.Center(
+                child: pw.Padding(
+                  padding: const pw.EdgeInsets.symmetric(vertical: 24),
+                  child: pw.Text(
+                    'No transactions for selected period',
+                    style: const pw.TextStyle(
+                        fontSize: 11, color: PdfColors.grey600),
+                  ),
+                ),
+              )
+            else
+              pw.TableHelper.fromTextArray(
+                border: null,
+                headerStyle: pw.TextStyle(
+                    fontWeight: pw.FontWeight.bold,
+                    fontSize: 10,
+                    color: PdfColors.grey800),
+                headerDecoration: const pw.BoxDecoration(
+                    color: PdfColors.grey200,
+                    border: pw.Border(
+                        bottom: pw.BorderSide(color: PdfColors.grey400))),
+                cellHeight: 22,
+                cellStyle: const pw.TextStyle(fontSize: 9),
+                rowDecoration: const pw.BoxDecoration(
+                    border: pw.Border(
+                        bottom: pw.BorderSide(
+                            color: PdfColors.grey300, width: 0.5))),
+                cellAlignments: {
+                  0: pw.Alignment.centerLeft,
+                  1: pw.Alignment.centerLeft,
+                  2: pw.Alignment.centerRight,
+                  3: pw.Alignment.centerRight,
+                  4: pw.Alignment.centerRight,
+                },
+                columnWidths: {
+                  0: const pw.FlexColumnWidth(1.5),
+                  1: const pw.FlexColumnWidth(4.0),
+                  2: const pw.FlexColumnWidth(2.0),
+                  3: const pw.FlexColumnWidth(2.0),
+                  4: const pw.FlexColumnWidth(2.5),
+                },
+                headers: [
+                  'Date',
+                  'Description',
+                  'Credit (In)',
+                  'Debit (Out)',
+                  'Balance'
                 ],
-                // Transaction Rows
-                ...items.map((item) => [
-                      DateFormat('yyyy-MM-dd').format(item.date),
-                      item.description,
-                      item.credit > 0 ? formatter.format(item.credit) : '-',
-                      item.debit > 0 ? formatter.format(item.debit) : '-',
-                      formatter.format(item.balance),
-                    ]),
-              ],
-            ),
+                data: [
+                  // Opening Balance Row
+                  [
+                    startDate != null ? dateFmt.format(startDate) : '-',
+                    openingLabel,
+                    '-',
+                    '-',
+                    formatter.format(openingBalance),
+                  ],
+                  // Transaction Rows
+                  ...items.map((item) => [
+                        dateFmt.format(item.date),
+                        item.description,
+                        item.credit > 0 ? formatter.format(item.credit) : '-',
+                        item.debit > 0 ? formatter.format(item.debit) : '-',
+                        formatter.format(item.balance),
+                      ]),
+                ],
+              ),
           ];
         },
       ),
@@ -770,16 +820,205 @@ class PdfService {
     );
   }
 
-  static pw.Widget _pdfSummaryCol(String title, String amount, {bool isBold = false}) {
+  // ==========================================
+  // Vendor Purchase History PDF
+  // ==========================================
+  static Future<void> generateVendorPurchaseHistoryPdf({
+    required String vendorName,
+    required String periodLabel,
+    DateTime? startDate,
+    DateTime? endDate,
+    required List<Purchase> purchases,
+    required double totalAmount,
+  }) async {
+    final pdf = pw.Document();
+    final formatter = NumberFormat('#,##0.00', 'en_US');
+    final qtyFormatter = NumberFormat('#,##0', 'en_US');
+    final dateFmt = DateFormat('yyyy-MM-dd');
+
+    String periodText;
+    if (startDate != null && endDate != null) {
+      periodText =
+          '$periodLabel  (${dateFmt.format(startDate)}  to  ${dateFmt.format(endDate)})';
+    } else {
+      periodText = periodLabel;
+    }
+
+    final totalItems =
+        purchases.fold<int>(0, (sum, p) => sum + p.items.length);
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (pw.Context context) {
+          return [
+            pw.Center(
+              child: pw.Text(
+                'VENDOR PURCHASE HISTORY',
+                style: pw.TextStyle(
+                  fontSize: 18,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.blueGrey900,
+                ),
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Center(
+              child: pw.Text(
+                'Vendor: $vendorName',
+                style: pw.TextStyle(
+                    fontSize: 14, fontWeight: pw.FontWeight.bold),
+              ),
+            ),
+            pw.SizedBox(height: 4),
+            pw.Center(
+              child: pw.Text(
+                'Period: $periodText',
+                style: const pw.TextStyle(
+                    fontSize: 11, color: PdfColors.grey700),
+              ),
+            ),
+            pw.Center(
+              child: pw.Text(
+                'Generated: ${dateFmt.format(DateTime.now())}',
+                style: const pw.TextStyle(
+                    fontSize: 10, color: PdfColors.grey600),
+              ),
+            ),
+            pw.SizedBox(height: 12),
+            pw.Divider(color: PdfColors.grey300),
+            pw.SizedBox(height: 12),
+
+            // Summary
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey100,
+                border: pw.Border.all(color: PdfColors.grey300),
+                borderRadius: pw.BorderRadius.circular(4),
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('Total Bills: ${purchases.length}',
+                      style: pw.TextStyle(
+                          fontSize: 11, fontWeight: pw.FontWeight.bold)),
+                  pw.Text('Total Line Items: $totalItems',
+                      style: pw.TextStyle(
+                          fontSize: 11, fontWeight: pw.FontWeight.bold)),
+                  pw.Text(
+                      'Grand Total: Rs. ${formatter.format(totalAmount)}',
+                      style: pw.TextStyle(
+                          fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 20),
+
+            if (purchases.isEmpty)
+              pw.Center(
+                child: pw.Text(
+                  'No purchases for selected period',
+                  style: const pw.TextStyle(
+                      fontSize: 11, color: PdfColors.grey600),
+                ),
+              )
+            else
+              ...purchases.map((pur) {
+                return pw.Container(
+                  margin: const pw.EdgeInsets.only(bottom: 14),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Container(
+                        width: double.infinity,
+                        padding: const pw.EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 6),
+                        decoration:
+                            const pw.BoxDecoration(color: PdfColors.grey200),
+                        child: pw.Text(
+                          'Purchase #${pur.id}  |  Date: ${dateFmt.format(pur.purchaseDate)}  |  Payment: ${pur.paymentMethod.toUpperCase()}  |  Total: Rs. ${formatter.format(pur.totalAmount)}',
+                          style: pw.TextStyle(
+                              fontSize: 10, fontWeight: pw.FontWeight.bold),
+                        ),
+                      ),
+                      pw.SizedBox(height: 4),
+                      pw.TableHelper.fromTextArray(
+                        border: null,
+                        cellStyle: const pw.TextStyle(fontSize: 9),
+                        headerStyle: pw.TextStyle(
+                            fontSize: 9, fontWeight: pw.FontWeight.bold),
+                        headerDecoration: const pw.BoxDecoration(
+                            color: PdfColors.grey100),
+                        cellHeight: 18,
+                        headers: [
+                          'Item',
+                          'Qty',
+                          'Unit Price',
+                          'Amount'
+                        ],
+                        cellAlignments: {
+                          0: pw.Alignment.centerLeft,
+                          1: pw.Alignment.centerRight,
+                          2: pw.Alignment.centerRight,
+                          3: pw.Alignment.centerRight,
+                        },
+                        data: pur.items
+                            .map((item) => [
+                                  item.productName,
+                                  qtyFormatter.format(item.quantity),
+                                  formatter.format(item.unitPrice),
+                                  formatter.format(item.total),
+                                ])
+                            .toList(),
+                      ),
+                      if (pur.notes.isNotEmpty) ...[
+                        pw.SizedBox(height: 2),
+                        pw.Text('Notes: ${pur.notes}',
+                            style: const pw.TextStyle(
+                                fontSize: 8, color: PdfColors.grey600)),
+                      ],
+                    ],
+                  ),
+                );
+              }),
+
+            pw.SizedBox(height: 16),
+            pw.Divider(color: PdfColors.grey400),
+            pw.Align(
+              alignment: pw.Alignment.centerRight,
+              child: pw.Text(
+                'GRAND TOTAL: Rs. ${formatter.format(totalAmount)}',
+                style: pw.TextStyle(
+                    fontSize: 14, fontWeight: pw.FontWeight.bold),
+              ),
+            ),
+          ];
+        },
+      ),
+    );
+
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdf.save(),
+      name:
+          'Vendor_${vendorName.replaceAll(' ', '_')}_Purchase_History.pdf',
+    );
+  }
+
+  static pw.Widget _pdfSummaryCol(String title, String amount,
+      {bool isBold = false}) {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Text(title, style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+        pw.Text(title,
+            style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
         pw.SizedBox(height: 4),
         pw.Text(amount,
             style: pw.TextStyle(
                 fontSize: 12,
-                fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+                fontWeight:
+                    isBold ? pw.FontWeight.bold : pw.FontWeight.normal)),
       ],
     );
   }

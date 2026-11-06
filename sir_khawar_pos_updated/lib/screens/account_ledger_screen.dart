@@ -38,9 +38,21 @@ class AccountLedgerScreen extends StatefulWidget {
 class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
   final AppData data = AppData();
 
+  List<LedgerItem> _rawItems = [];
+  List<LedgerItem> _filteredItems = [];
+  double _baseOpeningBalance = 0;
+  double _effectiveOpeningBalance = 0;
+  double _finalBalance = 0;
+  String _companyKey = AppCompanies.energy;
+
+  String _filterType = 'All Time';
+  DateTime? _startDate;
+  DateTime? _endDate;
+
   @override
   void initState() {
     super.initState();
+    _prepareData();
     data.addListener(_onDataChanged);
   }
 
@@ -51,28 +63,35 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
   }
 
   void _onDataChanged() {
-    if (mounted) setState(() {});
+    if (mounted) {
+      _prepareData();
+      setState(() {});
+    }
   }
 
   String _formatDate(DateTime d) {
     return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
   }
 
-  _LedgerData _computeLedger() {
+  String _formatDateShort(DateTime d) {
+    return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
+  }
+
+  void _prepareData() {
     final accountId = widget.accountId;
     final bool isEnergyCash = accountId == 'cash_energy';
     final bool isElectricCash = accountId == 'cash_electric';
     final bool isBank = !isEnergyCash && !isElectricCash;
 
-    double openingBalance = 0;
-    String companyKey = AppCompanies.energy;
+    _baseOpeningBalance = 0;
+    _companyKey = AppCompanies.energy;
 
     if (isEnergyCash) {
-      openingBalance = data.settings.getOpeningCash(AppCompanies.energy);
-      companyKey = AppCompanies.energy;
+      _baseOpeningBalance = data.settings.getOpeningCash(AppCompanies.energy);
+      _companyKey = AppCompanies.energy;
     } else if (isElectricCash) {
-      openingBalance = data.settings.getOpeningCash(AppCompanies.electric);
-      companyKey = AppCompanies.electric;
+      _baseOpeningBalance = data.settings.getOpeningCash(AppCompanies.electric);
+      _companyKey = AppCompanies.electric;
     } else {
       final bank = data.banks.firstWhere(
         (b) => b.id == accountId,
@@ -82,13 +101,13 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
             company: AppCompanies.energy,
             openingBalance: 0),
       );
-      openingBalance = bank.openingBalance;
-      companyKey = bank.company;
+      _baseOpeningBalance = bank.openingBalance;
+      _companyKey = bank.company;
     }
 
     final List<LedgerItem> items = [];
 
-    // 1. SALES PAYMENTS (Inflows)
+    // 1. SALES PAYMENTS (Inflow -> Credit)
     for (final sale in data.salesHistory) {
       for (final p in sale.payments) {
         bool include = false;
@@ -123,7 +142,7 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
       }
     }
 
-    // 2. EXPENSES (Outflows)
+    // 2. EXPENSES (Outflow -> Debit)
     for (final exp in data.expenses) {
       bool include = false;
       if (isEnergyCash &&
@@ -149,7 +168,7 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
       }
     }
 
-    // 3. SALARIES (Outflows)
+    // 3. SALARIES (Outflow -> Debit)
     for (final sal in data.salaryRecords) {
       bool include = false;
       if (isEnergyCash &&
@@ -176,10 +195,18 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
       }
     }
 
-    // 4. PURCHASES (Outflows — banks only)
+    // 4. PURCHASES (Outflow -> Debit)
     for (final pur in data.purchases) {
       bool include = false;
-      if (isBank && pur.bankId != null && pur.bankId!.isNotEmpty) {
+      if (isEnergyCash &&
+          pur.company == AppCompanies.energy &&
+          pur.paymentMethod == 'cash') {
+        include = true;
+      } else if (isElectricCash &&
+          pur.company == AppCompanies.electric &&
+          pur.paymentMethod == 'cash') {
+        include = true;
+      } else if (isBank && pur.bankId != null && pur.bankId!.isNotEmpty) {
         final pBankId = data.normalizeBankId(pur.bankId!);
         if (pBankId == accountId) {
           if (pur.paymentMethod == 'bank') {
@@ -192,6 +219,7 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
           }
         }
       }
+
       if (include) {
         final chequeInfo =
             pur.paymentMethod == 'cheque' && pur.chequeNumber.isNotEmpty
@@ -200,35 +228,150 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
         items.add(LedgerItem(
           date: pur.purchaseDate,
           description: 'Purchase Paid (${pur.vendorName}$chequeInfo)',
-          debit: pur.totalAmount,
+          debit: pur.totalAmount, // Outflow
         ));
       }
     }
 
-    // Chronological for accurate running balance
-    items.sort((a, b) => a.date.compareTo(b.date));
+    // 5. PURCHASE RETURNS (Inflow -> CREDIT REFUND back into Account)
+    for (final ret in data.purchaseReturns) {
+      final parentP =
+          data.purchases.where((p) => p.id == ret.purchaseId).firstOrNull;
 
-    double running = openingBalance;
-    for (final item in items) {
-      running += item.credit;
-      running -= item.debit;
-      item.balance = running;
+      final effectivePaymentMethod = ret.paymentMethod.isNotEmpty
+          ? ret.paymentMethod
+          : (parentP?.paymentMethod ?? 'cash');
+
+      final effectiveCompany = ret.company.isNotEmpty
+          ? ret.company
+          : (parentP?.company ?? AppCompanies.energy);
+
+      final rawBankId = (ret.bankId != null && ret.bankId!.isNotEmpty)
+          ? ret.bankId!
+          : (parentP?.bankId ?? '');
+
+      bool include = false;
+      if (isEnergyCash &&
+          effectiveCompany == AppCompanies.energy &&
+          effectivePaymentMethod == 'cash') {
+        include = true;
+      } else if (isElectricCash &&
+          effectiveCompany == AppCompanies.electric &&
+          effectivePaymentMethod == 'cash') {
+        include = true;
+      } else if (isBank && rawBankId.isNotEmpty) {
+        final rBankId = data.normalizeBankId(rawBankId);
+        if (rBankId == accountId) {
+          include = true;
+        }
+      }
+
+      if (include) {
+        items.add(LedgerItem(
+          date: ret.returnDate,
+          description:
+              'Purchase Return Refund (${ret.vendorName} - ${ret.purchaseId})',
+          credit: ret.totalAmount, // Credit Inflow -> Money returned back to you!
+        ));
+      }
     }
 
-    final finalBalance = running;
-    final reversed = items.reversed.toList();
+    // Sort chronologically
+    items.sort((a, b) => a.date.compareTo(b.date));
+    _rawItems = items;
 
-    return _LedgerData(
-      openingBalance: openingBalance,
-      items: reversed,
-      finalBalance: finalBalance,
-      companyKey: companyKey,
+    _applyFilter();
+  }
+
+  void _applyFilter() {
+    double running = _baseOpeningBalance;
+    double effectiveStart = _baseOpeningBalance;
+    List<LedgerItem> displayItems = [];
+
+    for (final item in _rawItems) {
+      bool beforeStart = _startDate != null && item.date.isBefore(_startDate!);
+      bool afterEnd = _endDate != null && item.date.isAfter(_endDate!);
+
+      if (beforeStart) {
+        running += item.credit;
+        running -= item.debit;
+        effectiveStart = running;
+      } else if (afterEnd) {
+        continue;
+      } else {
+        running += item.credit;
+        running -= item.debit;
+        displayItems.add(LedgerItem(
+          date: item.date,
+          description: item.description,
+          credit: item.credit,
+          debit: item.debit,
+          balance: running,
+        ));
+      }
+    }
+
+    _filteredItems = displayItems.reversed.toList();
+    _effectiveOpeningBalance = effectiveStart;
+    _finalBalance = running;
+  }
+
+  void _updateDateRange(String filter) {
+    final now = DateTime.now();
+    if (filter == 'All Time') {
+      _startDate = null;
+      _endDate = null;
+    } else if (filter == 'This Month') {
+      _startDate = DateTime(now.year, now.month, 1);
+      _endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+    } else if (filter == 'Last Month') {
+      _startDate = DateTime(now.year, now.month - 1, 1);
+      _endDate = DateTime(now.year, now.month, 0, 23, 59, 59);
+    } else if (filter == 'Last 3 Months') {
+      _startDate = DateTime(now.year, now.month - 3, 1);
+      _endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+    }
+    
+    setState(() {
+      _filterType = filter;
+      _applyFilter();
+    });
+  }
+
+  Future<void> _pickCustomRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      initialDateRange: (_startDate != null && _endDate != null)
+          ? DateTimeRange(start: _startDate!, end: _endDate!)
+          : null,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: AppColors.textPrimary,
+              onPrimary: Colors.white,
+              onSurface: AppColors.textPrimary,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
+
+    if (picked != null) {
+      setState(() {
+        _filterType = 'Custom Range';
+        _startDate = picked.start;
+        _endDate = DateTime(picked.end.year, picked.end.month, picked.end.day, 23, 59, 59);
+        _applyFilter();
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final ledger = _computeLedger();
     final isCash = widget.accountId.startsWith('cash_');
     final accentColor = isCash ? AppColors.cashGreen : AppColors.bankBlue;
 
@@ -252,14 +395,17 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
                 ),
               );
 
-              final chronologicalItems = ledger.items.reversed.toList();
+              final chronologicalItems = _filteredItems.reversed.toList();
 
               await PdfService.generateLedgerStatementPdf(
                 accountName: widget.accountName,
-                companyKey: ledger.companyKey,
-                openingBalance: ledger.openingBalance,
-                finalBalance: ledger.finalBalance,
+                companyKey: _companyKey,
+                openingBalance: _effectiveOpeningBalance,
+                finalBalance: _finalBalance,
                 items: chronologicalItems,
+                periodLabel: _filterType,
+                startDate: _startDate,
+                endDate: _endDate,
               );
             },
           ),
@@ -270,36 +416,85 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            // ── Summary Cards ──
+            // Filter Row
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: AppColors.cardBg,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.date_range, color: AppColors.textSecondary, size: 20),
+                  const SizedBox(width: 12),
+                  DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _filterType,
+                      icon: const Icon(Icons.arrow_drop_down, color: AppColors.textSecondary),
+                      items: ['All Time', 'This Month', 'Last Month', 'Last 3 Months', 'Custom Range']
+                          .map((e) => DropdownMenuItem(
+                                value: e,
+                                child: Text(e, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                              ))
+                          .toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          if (val == 'Custom Range') {
+                            _pickCustomRange();
+                          } else {
+                            _updateDateRange(val);
+                          }
+                        }
+                      },
+                    ),
+                  ),
+                  const Spacer(),
+                  if (_startDate != null && _endDate != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: accentColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '${_formatDateShort(_startDate!)}  —  ${_formatDateShort(_endDate!)}',
+                        style: TextStyle(fontSize: 13, color: accentColor, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+
+            // Summary Cards
             Row(
               children: [
-                _summaryCard('Opening', ledger.openingBalance, accentColor),
+                _summaryCard('Opening', _effectiveOpeningBalance, accentColor),
                 const SizedBox(width: 12),
                 _summaryCard(
-                  'Total In',
-                  ledger.items.fold(0.0, (s, i) => s + i.credit),
+                  'Total In (Credit)',
+                  _filteredItems.fold(0.0, (s, i) => s + i.credit),
                   AppColors.cashGreen,
                 ),
                 const SizedBox(width: 12),
                 _summaryCard(
-                  'Total Out',
-                  ledger.items.fold(0.0, (s, i) => s + i.debit),
+                  'Total Out (Debit)',
+                  _filteredItems.fold(0.0, (s, i) => s + i.debit),
                   AppColors.expenseRed,
                 ),
                 const SizedBox(width: 12),
                 _summaryCard(
                   'Balance',
-                  ledger.finalBalance,
-                  ledger.finalBalance >= 0
-                      ? accentColor
-                      : AppColors.expenseRed,
+                  _finalBalance,
+                  _finalBalance >= 0 ? accentColor : AppColors.expenseRed,
                   highlight: true,
                 ),
               ],
             ),
             const SizedBox(height: 16),
 
-            // ── Table Card ──
+            // Table Card
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
@@ -310,7 +505,6 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
                 clipBehavior: Clip.antiAlias,
                 child: Column(
                   children: [
-                    // ── FIXED Opening Balance (never scrolls) ──
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(
@@ -326,10 +520,10 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
                       ),
                       child: Row(
                         children: [
-                          const Expanded(
+                          Expanded(
                             child: Text(
-                              'Opening Balance',
-                              style: TextStyle(
+                              _filterType == 'All Time' ? 'Opening Balance' : 'Calculated Opening Balance',
+                              style: const TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.bold,
                                 color: AppColors.textPrimary,
@@ -337,7 +531,7 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
                             ),
                           ),
                           Text(
-                            'Rs. ${ledger.openingBalance.toStringAsFixed(2)}',
+                            'Rs. ${_effectiveOpeningBalance.toStringAsFixed(2)}',
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
@@ -348,7 +542,6 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
                       ),
                     ),
 
-                    // ── FIXED Column Headers (never scrolls) ──
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 16, vertical: 14),
@@ -402,12 +595,11 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
                       ),
                     ),
 
-                    // ── SCROLLABLE Transactions only ──
                     Expanded(
-                      child: ledger.items.isEmpty
+                      child: _filteredItems.isEmpty
                           ? Center(
                               child: Text(
-                                'No transactions yet',
+                                'No transactions for selected period',
                                 style: TextStyle(
                                   fontSize: 14,
                                   color: AppColors.textSecondary
@@ -416,18 +608,14 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
                               ),
                             )
                           : ListView.builder(
-                              itemCount: ledger.items.length,
+                              itemCount: _filteredItems.length,
                               itemBuilder: (context, index) {
-                                final item = ledger.items[index];
+                                final item = _filteredItems[index];
                                 return _tableRow(
                                   date: _formatDate(item.date),
                                   description: item.description,
-                                  credit: item.credit > 0
-                                      ? item.credit
-                                      : null,
-                                  debit: item.debit > 0
-                                      ? item.debit
-                                      : null,
+                                  credit: item.credit > 0 ? item.credit : null,
+                                  debit: item.debit > 0 ? item.debit : null,
                                   balance: item.balance,
                                   index: index,
                                 );
@@ -574,18 +762,4 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
       ),
     );
   }
-}
-
-class _LedgerData {
-  final double openingBalance;
-  final List<LedgerItem> items;
-  final double finalBalance;
-  final String companyKey;
-
-  _LedgerData({
-    required this.openingBalance,
-    required this.items,
-    required this.finalBalance,
-    required this.companyKey,
-  });
 }

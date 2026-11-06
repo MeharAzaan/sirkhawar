@@ -35,15 +35,12 @@ class CompanySettings {
     this.logoPathElectric = '',
   });
 
-  // Backward-compatibility getters & setters for old screens
   double get openingCashBalance => openingCashEnergy;
   set openingCashBalance(double val) => openingCashEnergy = val;
 
   String get logoPath => logoPathEnergy;
   set logoPath(String val) => logoPathEnergy = val;
 
-  /// Helper to get logo path by company key
-  /// Strict: no cross-company fallback (Electric never shows Energy logo)
   String getLogoPath(String company) {
     if (company == AppCompanies.electric) {
       return logoPathElectric;
@@ -51,7 +48,6 @@ class CompanySettings {
     return logoPathEnergy;
   }
 
-  /// Helper to get opening cash by company key
   double getOpeningCash(String company) {
     if (company == AppCompanies.electric) return openingCashElectric;
     return openingCashEnergy;
@@ -75,9 +71,9 @@ class AppData {
   List<BankAccount> banks = [];
   List<Vendor> vendors = [];
   List<Purchase> purchases = [];
+  List<PurchaseReturn> purchaseReturns = [];
   CompanySettings settings = CompanySettings();
 
-  // Global Company Filter: 'all', 'energy', or 'electric'
   String selectedCompanyFilter = 'all';
 
   String get selectedCompany => selectedCompanyFilter;
@@ -96,8 +92,6 @@ class AppData {
       l();
     }
   }
-
-  // ============ FILTERED LISTS FOR UI ============
 
   List<Quotation> get filteredQuotations {
     if (selectedCompanyFilter == 'all') return quotations;
@@ -118,8 +112,6 @@ class AppData {
     if (selectedCompanyFilter == 'all') return banks;
     return banks.where((b) => b.company == selectedCompanyFilter).toList();
   }
-
-  // ============ CHEQUE CLEARING ============
 
   Future<void> clearCheque(String saleId, String paymentId) async {
     final index = salesHistory.indexWhere((s) => s.id == saleId);
@@ -166,10 +158,11 @@ class AppData {
 
   // ============ COMPUTED BALANCES BY COMPANY ============
 
-  /// Get cash balance for a specific company ('energy' or 'electric')
+  /// Get cash balance for a specific company
   double getCashBalance(String company) {
     double b = settings.getOpeningCash(company);
 
+    // Sales Cash Receipts (+ Credit Inflow)
     for (final s in salesHistory) {
       if (s.company == company) {
         for (final p in s.payments) {
@@ -179,41 +172,42 @@ class AppData {
         }
       }
     }
+    // Expenses (- Debit Outflow)
     for (final e in expenses) {
       if (e.company == company && e.paidFrom == 'cash') {
         b -= e.amount;
       }
     }
+    // Salaries (- Debit Outflow)
     for (final s in salaryRecords) {
       if (s.company == company && s.method == PaymentMethod.cash) {
         b -= s.amount;
       }
     }
+    // Purchases (- Debit Outflow)
+    for (final p in purchases) {
+      if (p.company == company && p.paymentMethod == 'cash') {
+        b -= p.totalAmount;
+      }
+    }
+    // Purchase Returns (+ Credit Inflow Refund)
+    for (final r in purchaseReturns) {
+      if (r.company == company && r.paymentMethod == 'cash') {
+        b += r.totalAmount;
+      }
+    }
     return b;
   }
 
-  /// Sum of all cash purchases (vendor payments made in cash). Shared, not per-company.
-  double get totalCashPurchases => purchases
-      .where((p) => p.paymentMethod == 'cash')
-      .fold(0.0, (s, p) => s + p.totalAmount);
-
-  /// Default getter for active filter
   double get cashBalance {
-    double total;
     if (selectedCompanyFilter == 'electric') {
-      total = getCashBalance(AppCompanies.electric);
+      return getCashBalance(AppCompanies.electric);
     } else if (selectedCompanyFilter == 'energy') {
-      total = getCashBalance(AppCompanies.energy);
+      return getCashBalance(AppCompanies.energy);
     } else {
-      total = getCashBalance(AppCompanies.energy) +
+      return getCashBalance(AppCompanies.energy) +
           getCashBalance(AppCompanies.electric);
     }
-    // Vendor cash purchases are shared across companies — only deduct from the
-    // combined view so per-company figures stay clean.
-    if (selectedCompanyFilter == 'all') {
-      total -= totalCashPurchases;
-    }
-    return total;
   }
 
   /// Get balance of a specific bank account
@@ -222,7 +216,7 @@ class AppData {
     final bank = banks.where((b) => b.id == normalizedId).firstOrNull;
     double b = bank?.openingBalance ?? 0.0;
 
-    // Incoming payments to this bank
+    // Incoming payments (+ Credit Inflow)
     for (final s in salesHistory) {
       for (final p in s.payments) {
         final pBankId = p.bankId.isNotEmpty ? p.bankId : 'default_bank';
@@ -238,7 +232,7 @@ class AppData {
       }
     }
 
-    // Outgoing expenses from this bank
+    // Outgoing expenses (- Debit Outflow)
     for (final e in expenses) {
       final eBankId = normalizeBankId(e.paidFrom);
       if (eBankId == normalizedId) {
@@ -246,7 +240,7 @@ class AppData {
       }
     }
 
-    // Outgoing salaries from this bank
+    // Outgoing salaries (- Debit Outflow)
     for (final s in salaryRecords) {
       final sBankId = s.bankId.isNotEmpty ? s.bankId : 'default_bank';
       if (sBankId == normalizedId && s.method == PaymentMethod.online) {
@@ -254,7 +248,7 @@ class AppData {
       }
     }
 
-    // Outgoing purchases (bank transfer or cleared cheque)
+    // Outgoing purchases (- Debit Outflow)
     for (final p in purchases) {
       if (p.bankId == null || p.bankId!.isEmpty) continue;
       final pBankId = normalizeBankId(p.bankId!);
@@ -263,9 +257,19 @@ class AppData {
       if (p.paymentMethod == 'bank') {
         b -= p.totalAmount;
       } else if (p.paymentMethod == 'cheque') {
-        // Future-dated cheques are pending and don't affect bank yet
         if (p.chequeDate == null || !p.chequeDate!.isAfter(DateTime.now())) {
           b -= p.totalAmount;
+        }
+      }
+    }
+
+    // Incoming purchase returns (+ Credit Inflow)
+    for (final r in purchaseReturns) {
+      if (r.paymentMethod == 'bank' || r.paymentMethod == 'cheque') {
+        if (r.bankId == null || r.bankId!.isEmpty) continue;
+        final rBankId = normalizeBankId(r.bankId!);
+        if (rBankId == normalizedId) {
+          b += r.totalAmount;
         }
       }
     }
@@ -383,6 +387,10 @@ class AppData {
       purchases = snap.docs.map(_purchaseFromDoc).toList();
       _notify();
     }));
+    _subs.add(_db.collection('purchase_returns').orderBy('returnDate', descending: true).snapshots().listen((snap) {
+      purchaseReturns = snap.docs.map(_purchaseReturnFromDoc).toList();
+      _notify();
+    }));
 
     await _initialFetch();
   }
@@ -400,6 +408,7 @@ class AppData {
         _db.collection('banks').get(),
         _db.collection('vendors').get(),
         _db.collection('purchases').orderBy('purchaseDate', descending: true).get(),
+        _db.collection('purchase_returns').orderBy('returnDate', descending: true).get(),
       ]);
       products = r[0].docs.map(_productFromDoc).toList();
       quotations = r[1].docs.map(_quotationFromDoc).toList();
@@ -412,6 +421,7 @@ class AppData {
       vendors = r[8].docs.map(_vendorFromDoc).toList();
       vendors.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
       purchases = r[9].docs.map(_purchaseFromDoc).toList();
+      purchaseReturns = r[10].docs.map(_purchaseReturnFromDoc).toList();
       final sd = await _db.collection('settings').doc('company').get();
       if (sd.exists) settings = _settingsFromDoc(sd);
     } catch (e) {
@@ -426,8 +436,6 @@ class AppData {
     _subs.clear();
     _listeners.clear();
   }
-
-  // ============ SEED ============
 
   Future<void> seedInitialDataIfEmpty() async {
     try {
@@ -464,8 +472,6 @@ class AppData {
       debugPrint('Seed skipped (offline?): $e');
     }
   }
-
-  // ============ CONVERSIONS & HELPERS ============
 
   PaymentMethod _parsePaymentMethod(dynamic val) {
     if (val == null) return PaymentMethod.cash;
@@ -708,54 +714,15 @@ class AppData {
 
   Purchase _purchaseFromDoc(DocumentSnapshot doc) {
     final d = doc.data() as Map<String, dynamic>? ?? {};
-    return Purchase(
-      id: d['id']?.toString() ?? doc.id,
-      vendorId: d['vendorId']?.toString() ?? '',
-      vendorName: d['vendorName']?.toString() ?? '',
-      items: (d['items'] as List<dynamic>? ?? []).map((i) {
-        final im = i as Map<String, dynamic>;
-        return PurchaseItem(
-          productId: im['productId']?.toString() ?? '',
-          productName: im['productName']?.toString() ?? '',
-          quantity: (im['quantity'] as num?)?.toInt() ?? 0,
-          unitPrice: (im['unitPrice'] as num?)?.toDouble() ?? 0.0,
-          addedToInventory: im['addedToInventory'] == true,
-        );
-      }).toList(),
-      purchaseDate: (d['purchaseDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      paymentMethod: d['paymentMethod']?.toString() ?? 'cash',
-      bankId: d['bankId']?.toString(),
-      notes: d['notes']?.toString() ?? '',
-      totalAmount: (d['totalAmount'] as num?)?.toDouble() ?? 0.0,
-      chequeNumber: d['chequeNumber']?.toString() ?? '',
-      chequeDate: d['chequeDate'] != null
-          ? (d['chequeDate'] as Timestamp).toDate()
-          : null,
-      chequeBankName: d['chequeBankName']?.toString() ?? '',
-    );
+    return Purchase.fromMap(d);
   }
 
-  Map<String, dynamic> _purchaseToMap(Purchase p) => {
-        'id': p.id,
-        'vendorId': p.vendorId,
-        'vendorName': p.vendorName,
-        'items': p.items.map((i) => {
-              'productId': i.productId,
-              'productName': i.productName,
-              'quantity': i.quantity,
-              'unitPrice': i.unitPrice,
-              'addedToInventory': i.addedToInventory,
-            }).toList(),
-        'purchaseDate': Timestamp.fromDate(p.purchaseDate),
-        'paymentMethod': p.paymentMethod,
-        'bankId': p.bankId,
-        'notes': p.notes,
-        'totalAmount': p.totalAmount,
-        'chequeNumber': p.chequeNumber,
-        'chequeDate':
-            p.chequeDate != null ? Timestamp.fromDate(p.chequeDate!) : null,
-        'chequeBankName': p.chequeBankName,
-      };
+  Map<String, dynamic> _purchaseToMap(Purchase p) => p.toMap();
+
+  PurchaseReturn _purchaseReturnFromDoc(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return PurchaseReturn.fromMap(d);
+  }
 
   CompanySettings _settingsFromDoc(DocumentSnapshot doc) {
     final d = doc.data() as Map<String, dynamic>? ?? {};
@@ -822,7 +789,6 @@ class AppData {
   Future<void> updateBank(BankAccount b) async => await _db.collection('banks').doc(b.id).set(_bankToMap(b));
   Future<void> deleteBank(String id) async => await _db.collection('banks').doc(id).delete();
 
-  // ============ VENDOR CRUD ============
   Future<void> addVendor(Vendor v) async => await _db.collection('vendors').doc(v.id).set(_vendorToMap(v));
   Future<void> updateVendor(Vendor v) async => await _db.collection('vendors').doc(v.id).set(_vendorToMap(v));
   Future<void> deleteVendor(String id) async => await _db.collection('vendors').doc(id).delete();
@@ -842,7 +808,6 @@ class AppData {
     return '$prefix-${num.toString().padLeft(4, '0')}';
   }
 
-  /// Save purchase + increase stock of any items that are linked to inventory
   Future<void> addPurchase(Purchase p) async {
     final batch = _db.batch();
 
@@ -864,21 +829,134 @@ class AppData {
   Future<void> deletePurchase(String id) async =>
       await _db.collection('purchases').doc(id).delete();
 
-  /// Add a purchase item (that wasn't in inventory) into the inventory now,
-  /// and link it back on the purchase doc so it's marked done.
+  /// Process Purchase Return:
+  /// 1. Original Purchase record remains untouched.
+  /// 2. Deducts quantity from inventory.
+  /// 3. Adds PurchaseReturn document (CREDIT Inflow) into the selected account ledger (cash or bank).
+  Future<void> processPurchaseReturn({
+    required String purchaseId,
+    required Map<int, int> returnQuantities,
+    String paymentMethod = 'cash',
+    String? bankId,
+    String notes = '',
+  }) async {
+    final pIndex = purchases.indexWhere((p) => p.id == purchaseId);
+    if (pIndex == -1) return;
+
+    final purchase = purchases[pIndex];
+    final batch = _db.batch();
+
+    final List<PurchaseReturnItem> returnItems = [];
+    final List<PurchaseItem> updatedPurchaseItems = List.from(purchase.items);
+    double returnTotalAmount = 0.0;
+
+    returnQuantities.forEach((itemIndex, qtyToReturn) {
+      if (itemIndex >= 0 && itemIndex < purchase.items.length && qtyToReturn > 0) {
+        final item = purchase.items[itemIndex];
+        final maxReturnable = item.quantity - item.returnedQuantity;
+        final actualReturnQty = min(qtyToReturn, maxReturnable);
+
+        if (actualReturnQty > 0) {
+          final newReturnedQty = item.returnedQuantity + actualReturnQty;
+          updatedPurchaseItems[itemIndex] = item.copyWith(returnedQuantity: newReturnedQty);
+
+          if (item.productId.isNotEmpty) {
+            final prodIndex = products.indexWhere((pr) => pr.id == item.productId);
+            if (prodIndex != -1) {
+              final currentProd = products[prodIndex];
+              final newQty = max(0, currentProd.quantity - actualReturnQty);
+              batch.update(_db.collection('products').doc(item.productId), {'quantity': newQty});
+            }
+          }
+
+          final itemReturnTotal = actualReturnQty * item.unitPrice;
+          returnTotalAmount += itemReturnTotal;
+
+          returnItems.add(PurchaseReturnItem(
+            productId: item.productId,
+            productName: item.productName,
+            quantity: actualReturnQty,
+            unitPrice: item.unitPrice,
+          ));
+        }
+      }
+    });
+
+    if (returnItems.isEmpty) return;
+
+    final updatedPurchase = Purchase(
+      id: purchase.id,
+      vendorId: purchase.vendorId,
+      vendorName: purchase.vendorName,
+      items: updatedPurchaseItems,
+      purchaseDate: purchase.purchaseDate,
+      paymentMethod: purchase.paymentMethod,
+      bankId: purchase.bankId,
+      notes: purchase.notes,
+      totalAmount: purchase.totalAmount,
+      chequeNumber: purchase.chequeNumber,
+      chequeDate: purchase.chequeDate,
+      chequeBankName: purchase.chequeBankName,
+      company: purchase.company,
+    );
+    batch.set(_db.collection('purchases').doc(purchase.id), _purchaseToMap(updatedPurchase));
+
+    final returnId = _db.collection('purchase_returns').doc().id;
+    final purchaseReturn = PurchaseReturn(
+      id: returnId,
+      purchaseId: purchase.id,
+      vendorId: purchase.vendorId,
+      vendorName: purchase.vendorName,
+      items: returnItems,
+      returnDate: DateTime.now(),
+      totalAmount: returnTotalAmount,
+      paymentMethod: paymentMethod,
+      bankId: bankId ?? (paymentMethod == 'bank' ? purchase.bankId : null),
+      company: purchase.company,
+      notes: notes,
+    );
+    batch.set(_db.collection('purchase_returns').doc(returnId), purchaseReturn.toMap());
+
+    await batch.commit();
+  }
+
+  Future<void> returnPurchase(
+    String purchaseId, {
+    String paymentMethod = 'cash',
+    String? bankId,
+  }) async {
+    final pIndex = purchases.indexWhere((p) => p.id == purchaseId);
+    if (pIndex == -1) return;
+    final purchase = purchases[pIndex];
+
+    final Map<int, int> returnAllMap = {};
+    for (int i = 0; i < purchase.items.length; i++) {
+      final rem = purchase.items[i].quantity - purchase.items[i].returnedQuantity;
+      if (rem > 0) {
+        returnAllMap[i] = rem;
+      }
+    }
+    if (returnAllMap.isNotEmpty) {
+      await processPurchaseReturn(
+        purchaseId: purchaseId,
+        returnQuantities: returnAllMap,
+        paymentMethod: paymentMethod,
+        bankId: bankId,
+        notes: 'Full Return',
+      );
+    }
+  }
+
   Future<void> addPurchaseItemToInventory({
     required String purchaseId,
     required int itemIndex,
     required Product newProduct,
   }) async {
     final purchase = purchases.firstWhere((p) => p.id == purchaseId);
-
     final batch = _db.batch();
 
-    // Create product (initial stock = purchase qty, set inside caller)
     batch.set(_db.collection('products').doc(newProduct.id), _productToMap(newProduct));
 
-    // Update purchase item: mark addedToInventory + attach productId
     final updatedItems = List<PurchaseItem>.from(purchase.items);
     updatedItems[itemIndex] = updatedItems[itemIndex].copyWith(
       productId: newProduct.id,
@@ -898,6 +976,7 @@ class AppData {
       chequeNumber: purchase.chequeNumber,
       chequeDate: purchase.chequeDate,
       chequeBankName: purchase.chequeBankName,
+      company: purchase.company,
     );
 
     batch.set(_db.collection('purchases').doc(purchase.id), _purchaseToMap(updatedPurchase));

@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:sir_khawar_pos_updated/constants/app_colors.dart';
 import 'package:sir_khawar_pos_updated/data/app_data.dart';
+import 'package:sir_khawar_pos_updated/models/quotation.dart';
 import '../models/product.dart';
 import '../models/vendor.dart';
 import '../models/purchase.dart';
-import '../models/quotation.dart';
+import '../models/bank_account.dart';
 
 class CreatePurchaseScreen extends StatefulWidget {
   const CreatePurchaseScreen({super.key});
@@ -21,6 +22,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   final _notesCtrl = TextEditingController();
   final _chequeNumberCtrl = TextEditingController();
   final _chequeBankNameCtrl = TextEditingController();
+  String _company = AppCompanies.energy;
   String _paymentMethod = 'cash';
   String? _bankId;
   DateTime? _chequeDate;
@@ -46,6 +48,9 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
     if (mounted) setState(() {});
   }
 
+  List<BankAccount> get _companyBanks =>
+      data.banks.where((b) => b.company == _company).toList();
+
   double get _total =>
       _items.fold(0.0, (s, i) => s + (i.unitPrice * i.quantity));
 
@@ -56,6 +61,18 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   void _removeItem(int i) {
     if (_items.length <= 1) return;
     setState(() => _items.removeAt(i));
+  }
+
+  void _onCompanyChanged(String? v) {
+    if (v == null) return;
+    setState(() {
+      _company = v;
+      // Reset bank if it doesn't belong to the new company
+      if (_bankId != null &&
+          !data.banks.any((b) => b.id == _bankId && b.company == _company)) {
+        _bankId = null;
+      }
+    });
   }
 
   Future<void> _pickChequeDate() async {
@@ -96,7 +113,18 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         (_bankId == null || _bankId!.isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please select a bank account'),
+          content: Text('Please select a bank account for this company'),
+          backgroundColor: AppColors.expenseRed,
+        ),
+      );
+      return;
+    }
+    if ((_paymentMethod == 'bank' || _paymentMethod == 'cheque') &&
+        _companyBanks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              'No bank accounts for ${AppCompanies.label(_company)}. Add a bank first.'),
           backgroundColor: AppColors.expenseRed,
         ),
       );
@@ -143,6 +171,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         chequeBankName: _paymentMethod == 'cheque'
             ? _chequeBankNameCtrl.text.trim()
             : '',
+        company: _company,
       );
 
       await data.addPurchase(purchase);
@@ -193,8 +222,8 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final energyCash = data.getCashBalance(AppCompanies.energy);
-    final electricCash = data.getCashBalance(AppCompanies.electric);
+    final companyCash = data.getCashBalance(_company);
+    final banks = _companyBanks;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -267,6 +296,28 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
               ),
               const SizedBox(height: 16),
 
+              // Company (filters banks + cash drawer)
+              DropdownButtonFormField<String>(
+                value: _company,
+                decoration: const InputDecoration(
+                  labelText: 'Company *',
+                  prefixIcon: Icon(Icons.business),
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  DropdownMenuItem(
+                    value: AppCompanies.energy,
+                    child: Text(AppCompanies.label(AppCompanies.energy)),
+                  ),
+                  DropdownMenuItem(
+                    value: AppCompanies.electric,
+                    child: Text(AppCompanies.label(AppCompanies.electric)),
+                  ),
+                ],
+                onChanged: _onCompanyChanged,
+              ),
+              const SizedBox(height: 16),
+
               // Payment method
               DropdownButtonFormField<String>(
                 value: _paymentMethod,
@@ -288,57 +339,69 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
               ),
               const SizedBox(height: 8),
 
-              // Cash balances
+              // Cash balance for selected company
               if (_paymentMethod == 'cash') ...[
                 Wrap(
                   children: [
                     _balanceChip(
-                      'Energy Cash',
-                      energyCash,
+                      '${AppCompanies.label(_company)} Cash',
+                      companyCash,
                       color: AppColors.cashGreen,
-                    ),
-                    _balanceChip(
-                      'Electric Cash',
-                      electricCash,
-                      color: AppColors.cashGreen,
-                    ),
-                    _balanceChip(
-                      'Total Cash',
-                      energyCash + electricCash,
-                      color: AppColors.bankBlue,
                     ),
                   ],
                 ),
               ],
 
-              // Bank / Cheque bank picker with live balances
+              // Bank / Cheque — only banks of selected company
               if (_paymentMethod == 'bank' ||
                   _paymentMethod == 'cheque') ...[
                 const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  value: _bankId,
-                  decoration: const InputDecoration(
-                    labelText: 'Bank Account *',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: data.banks.map((b) {
-                    final bal = data.getBankBalance(b.id);
-                    final companyLabel = b.company == AppCompanies.electric
-                        ? 'Electric'
-                        : 'Energy';
-                    return DropdownMenuItem(
-                      value: b.id,
-                      child: Text(
-                        '${b.name}'
-                        '${b.accountTitle.isNotEmpty ? " — ${b.accountTitle}" : ""}'
-                        ' ($companyLabel)  •  ${_fmt(bal)}',
-                        overflow: TextOverflow.ellipsis,
+                if (banks.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.expenseRed.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                          color: AppColors.expenseRed.withOpacity(0.3)),
+                    ),
+                    child: Text(
+                      'No bank accounts found for ${AppCompanies.label(_company)}. Please add a bank for this company first.',
+                      style: const TextStyle(
+                        color: AppColors.expenseRed,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
                       ),
-                    );
-                  }).toList(),
-                  onChanged: (v) => setState(() => _bankId = v),
-                ),
-                if (_bankId != null) ...[
+                    ),
+                  )
+                else
+                  DropdownButtonFormField<String>(
+                    value: _bankId != null &&
+                            banks.any((b) => b.id == _bankId)
+                        ? _bankId
+                        : null,
+                    decoration: InputDecoration(
+                      labelText:
+                          'Bank Account (${AppCompanies.label(_company)}) *',
+                      border: const OutlineInputBorder(),
+                    ),
+                    items: banks.map((b) {
+                      final bal = data.getBankBalance(b.id);
+                      return DropdownMenuItem(
+                        value: b.id,
+                        child: Text(
+                          '${b.name}'
+                          '${b.accountTitle.isNotEmpty ? " — ${b.accountTitle}" : ""}'
+                          '  •  ${_fmt(bal)}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (v) => setState(() => _bankId = v),
+                  ),
+                if (_bankId != null &&
+                    banks.any((b) => b.id == _bankId)) ...[
                   const SizedBox(height: 6),
                   _balanceChip(
                     'Selected bank balance',
@@ -346,8 +409,8 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                     color: AppColors.bankBlue,
                   ),
                   if (_total > data.getBankBalance(_bankId!))
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
+                    const Padding(
+                      padding: EdgeInsets.only(top: 4),
                       child: Text(
                         'Warning: purchase total exceeds bank balance',
                         style: TextStyle(
@@ -584,8 +647,10 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                                   horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
                                 color: existing
-                                    ? AppColors.cashGreen.withValues(alpha: 0.1)
-                                    : AppColors.expenseRed.withValues(alpha: 0.1),
+                                    ? AppColors.cashGreen
+                                        .withValues(alpha: 0.1)
+                                    : AppColors.expenseRed
+                                        .withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
