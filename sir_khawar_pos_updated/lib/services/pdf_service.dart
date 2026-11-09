@@ -18,7 +18,7 @@ import '../screens/account_ledger_screen.dart';
 
 class PdfService {
   
-  // ==========================================
+    // ==========================================
   // EXISTING FUNCTION: Quotations
   // ==========================================
   static Future<void> generateAndSavePdf(Quotation quotation) async {
@@ -55,194 +55,313 @@ class PdfService {
       }
     }
 
+    // Fixed column widths so Qty / Rate / Amount never stutter
+    const colNo = 28.0;
+    const colQty = 72.0;
+    const colRate = 85.0;
+    const colAmount = 95.0;
+
+    pw.Widget buildHeaderCell(String text, {pw.Alignment align = pw.Alignment.centerLeft}) {
+      return pw.Container(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        alignment: align,
+        child: pw.Text(
+          text,
+          style: pw.TextStyle(
+            fontWeight: pw.FontWeight.bold,
+            fontSize: 10,
+            color: PdfColors.grey800,
+          ),
+        ),
+      );
+    }
+
+    pw.Widget buildCell(
+      String text, {
+      pw.Alignment align = pw.Alignment.centerLeft,
+      bool bold = false,
+      bool allowWrap = true,
+    }) {
+      return pw.Container(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        alignment: align,
+        child: pw.Text(
+          text,
+          textAlign: align == pw.Alignment.centerRight
+              ? pw.TextAlign.right
+              : pw.TextAlign.left,
+          style: pw.TextStyle(
+            fontSize: 10,
+            fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+            color: PdfColors.blueGrey900,
+          ),
+          maxLines: allowWrap ? 6 : 1,
+        ),
+      );
+    }
+
     pdf.addPage(
-      pw.Page(
+      pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(32),
         build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              if (logoImage != null) ...[
-                pw.Center(
-                  child: pw.Image(logoImage, height: 120, fit: pw.BoxFit.contain),
-                ),
-              ] else ...[
-                pw.Center(
-                  child: pw.Text(
-                    companyName,
-                    style: pw.TextStyle(
-                      fontSize: 20,
-                      fontWeight: pw.FontWeight.bold,
-                      color: PdfColors.blueGrey900,
-                    ),
-                  ),
-                ),
-              ],
-              pw.SizedBox(height: 12),
-              pw.Divider(color: PdfColors.grey300),
-              pw.SizedBox(height: 12),
-
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        'QUOTATION',
-                        style: pw.TextStyle(
-                          fontSize: 22,
-                          fontWeight: pw.FontWeight.bold,
-                          color: PdfColors.blueGrey900,
-                        ),
-                      ),
-                      pw.Text(
-                        'Quotation #: ${quotation.id}',
-                        style: pw.TextStyle(
-                          fontSize: 11,
-                          fontWeight: pw.FontWeight.bold,
-                          color: PdfColors.grey700,
-                        ),
-                      ),
-                    ],
-                  ),
-                  pw.Text(
-                    'Date: ${DateFormat('yyyy-MM-dd').format(quotation.createdDate)}',
-                    style: const pw.TextStyle(fontSize: 11),
-                  ),
-                ],
+          return [
+            if (logoImage != null) ...[
+              pw.Center(
+                child: pw.Image(logoImage, height: 120, fit: pw.BoxFit.contain),
               ),
-              pw.SizedBox(height: 12),
-              pw.Divider(color: PdfColors.grey300),
-              pw.SizedBox(height: 12),
-
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'Customer: ${quotation.customerName}',
-                    style: pw.TextStyle(
-                        fontWeight: pw.FontWeight.bold, fontSize: 12),
-                  ),
-                  if (quotation.customerPhone.isNotEmpty)
-                    pw.Text('Phone: ${quotation.customerPhone}',
-                        style: const pw.TextStyle(fontSize: 10)),
-                  if (quotation.customerAddress.isNotEmpty)
-                    pw.Text('Address: ${quotation.customerAddress}',
-                        style: const pw.TextStyle(fontSize: 10)),
-                ],
-              ),
-              pw.SizedBox(height: 16),
-
-              pw.TableHelper.fromTextArray(
-                border: null,
-                headerStyle: pw.TextStyle(
+            ] else ...[
+              pw.Center(
+                child: pw.Text(
+                  companyName,
+                  style: pw.TextStyle(
+                    fontSize: 20,
                     fontWeight: pw.FontWeight.bold,
-                    fontSize: 10,
-                    color: PdfColors.grey800),
-                headerDecoration:
-                    const pw.BoxDecoration(color: PdfColors.grey200),
-                cellHeight: 24,
-                cellStyle: const pw.TextStyle(fontSize: 10),
-                cellAlignments: {
-                  0: pw.Alignment.centerLeft,
-                  1: pw.Alignment.centerLeft,
-                  2: pw.Alignment.centerRight,
-                  3: pw.Alignment.centerRight,
-                  4: pw.Alignment.centerRight,
-                },
-                headers: ['No', 'Item', 'Quantity', 'Rate', 'Amount'],
-                data: List.generate(quotation.items.length, (index) {
-                  final item = quotation.items[index];
-                  return [
-                    '${index + 1}',
-                    item.productName,
-                    '${qtyFormatter.format(item.quantity)} Nos',
-                    formatter.format(item.unitPrice),
-                    formatter.format(item.total),
-                  ];
-                }),
-              ),
-              pw.Divider(color: PdfColors.grey300),
-              pw.SizedBox(height: 16),
-
-              pw.Align(
-                alignment: pw.Alignment.centerRight,
-                child: pw.SizedBox(
-                  width: 260,
-                  child: pw.Column(
-                    children: [
-                      pw.Row(
-                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                        children: [
-                          pw.Text('Sub Total:',
-                              style: const pw.TextStyle(fontSize: 11)),
-                          pw.Text(formatter.format(subtotal),
-                              style: pw.TextStyle(
-                                  fontWeight: pw.FontWeight.bold, fontSize: 11)),
-                        ],
-                      ),
-                      if (totalDiscount > 0) ...[
-                        pw.SizedBox(height: 6),
-                        pw.Row(
-                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                          children: [
-                            pw.Text(
-                              'Discount (${((totalDiscount / (subtotal == 0 ? 1 : subtotal)) * 100).toStringAsFixed(0)}%):',
-                              style: const pw.TextStyle(fontSize: 11),
-                            ),
-                            pw.Text(formatter.format(totalDiscount),
-                                style: pw.TextStyle(
-                                    fontWeight: pw.FontWeight.bold,
-                                    fontSize: 11)),
-                          ],
-                        ),
-                      ],
-                    ],
+                    color: PdfColors.blueGrey900,
                   ),
-                ),
-              ),
-              pw.SizedBox(height: 20),
-
-              pw.Container(
-                padding:
-                    const pw.EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                decoration: pw.BoxDecoration(
-                  color: PdfColors.grey100,
-                  borderRadius: pw.BorderRadius.circular(4),
-                  border: pw.Border.all(color: PdfColors.grey300),
-                ),
-                child: pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Expanded(
-                      child: pw.Text(
-                        NumberToWordsConverter.convert(grandTotal),
-                        style: pw.TextStyle(
-                            fontSize: 10,
-                            fontWeight: pw.FontWeight.bold,
-                            color: PdfColors.grey800),
-                      ),
-                    ),
-                    pw.Row(
-                      children: [
-                        pw.Text('Grand Total:  ',
-                            style: pw.TextStyle(
-                                fontSize: 12,
-                                fontWeight: pw.FontWeight.bold)),
-                        pw.Text(formatter.format(grandTotal),
-                            style: pw.TextStyle(
-                                fontSize: 13,
-                                fontWeight: pw.FontWeight.bold)),
-                      ],
-                    ),
-                  ],
                 ),
               ),
             ],
-          );
+            pw.SizedBox(height: 12),
+            pw.Divider(color: PdfColors.grey300),
+            pw.SizedBox(height: 12),
+
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'QUOTATION',
+                      style: pw.TextStyle(
+                        fontSize: 22,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.blueGrey900,
+                      ),
+                    ),
+                    pw.Text(
+                      'Quotation #: ${quotation.id}',
+                      style: pw.TextStyle(
+                        fontSize: 11,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.grey700,
+                      ),
+                    ),
+                  ],
+                ),
+                pw.Text(
+                  'Date: ${DateFormat('yyyy-MM-dd').format(quotation.createdDate)}',
+                  style: const pw.TextStyle(fontSize: 11),
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 12),
+            pw.Divider(color: PdfColors.grey300),
+            pw.SizedBox(height: 12),
+
+            pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  'Customer: ${quotation.customerName}',
+                  style: pw.TextStyle(
+                      fontWeight: pw.FontWeight.bold, fontSize: 12),
+                ),
+                if (quotation.customerPhone.isNotEmpty)
+                  pw.Text('Phone: ${quotation.customerPhone}',
+                      style: const pw.TextStyle(fontSize: 10)),
+                if (quotation.customerAddress.isNotEmpty)
+                  pw.Text('Address: ${quotation.customerAddress}',
+                      style: const pw.TextStyle(fontSize: 10)),
+              ],
+            ),
+            pw.SizedBox(height: 16),
+
+            // ── BOXED ITEMS TABLE ──
+            pw.Container(
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColors.grey400, width: 0.8),
+                borderRadius: pw.BorderRadius.circular(4),
+              ),
+              child: pw.Column(
+                children: [
+                  // Header row
+                  pw.Container(
+                    decoration: const pw.BoxDecoration(
+                      color: PdfColors.grey200,
+                      borderRadius: pw.BorderRadius.only(
+                        topLeft: pw.Radius.circular(3.5),
+                        topRight: pw.Radius.circular(3.5),
+                      ),
+                    ),
+                    child: pw.Row(
+                      crossAxisAlignment: pw.CrossAxisAlignment.center,
+                      children: [
+                        pw.SizedBox(
+                          width: colNo,
+                          child: buildHeaderCell('No'),
+                        ),
+                        pw.Expanded(
+                          child: buildHeaderCell('Item'),
+                        ),
+                        pw.SizedBox(
+                          width: colQty,
+                          child: buildHeaderCell('Quantity',
+                              align: pw.Alignment.centerRight),
+                        ),
+                        pw.SizedBox(
+                          width: colRate,
+                          child: buildHeaderCell('Rate',
+                              align: pw.Alignment.centerRight),
+                        ),
+                        pw.SizedBox(
+                          width: colAmount,
+                          child: buildHeaderCell('Amount',
+                              align: pw.Alignment.centerRight),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Item rows — each in its own box strip
+                  ...List.generate(quotation.items.length, (index) {
+                    final item = quotation.items[index];
+                    final isLast = index == quotation.items.length - 1;
+                    return pw.Container(
+                      decoration: pw.BoxDecoration(
+                        color: index.isOdd
+                            ? PdfColors.grey100
+                            : PdfColors.white,
+                        border: isLast
+                            ? null
+                            : const pw.Border(
+                                bottom: pw.BorderSide(
+                                    color: PdfColors.grey300, width: 0.5),
+                              ),
+                      ),
+                      child: pw.Row(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.SizedBox(
+                            width: colNo,
+                            child: buildCell('${index + 1}'),
+                          ),
+                          // Item name — wraps inside its box only
+                          pw.Expanded(
+                            child: buildCell(item.productName, allowWrap: true),
+                          ),
+                          // Fixed right columns — never wrap / stutter
+                          pw.SizedBox(
+                            width: colQty,
+                            child: buildCell(
+                              '${qtyFormatter.format(item.quantity)} Nos',
+                              align: pw.Alignment.centerRight,
+                              allowWrap: false,
+                            ),
+                          ),
+                          pw.SizedBox(
+                            width: colRate,
+                            child: buildCell(
+                              formatter.format(item.unitPrice),
+                              align: pw.Alignment.centerRight,
+                              allowWrap: false,
+                            ),
+                          ),
+                          pw.SizedBox(
+                            width: colAmount,
+                            child: buildCell(
+                              formatter.format(item.total),
+                              align: pw.Alignment.centerRight,
+                              bold: true,
+                              allowWrap: false,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+
+            pw.SizedBox(height: 16),
+
+            pw.Align(
+              alignment: pw.Alignment.centerRight,
+              child: pw.SizedBox(
+                width: 260,
+                child: pw.Column(
+                  children: [
+                    pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        pw.Text('Sub Total:',
+                            style: const pw.TextStyle(fontSize: 11)),
+                        pw.Text(formatter.format(subtotal),
+                            style: pw.TextStyle(
+                                fontWeight: pw.FontWeight.bold, fontSize: 11)),
+                      ],
+                    ),
+                    if (totalDiscount > 0) ...[
+                      pw.SizedBox(height: 6),
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          pw.Text(
+                            'Discount (${((totalDiscount / (subtotal == 0 ? 1 : subtotal)) * 100).toStringAsFixed(0)}%):',
+                            style: const pw.TextStyle(fontSize: 11),
+                          ),
+                          pw.Text(formatter.format(totalDiscount),
+                              style: pw.TextStyle(
+                                  fontWeight: pw.FontWeight.bold,
+                                  fontSize: 11)),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            pw.SizedBox(height: 20),
+
+            pw.Container(
+              padding:
+                  const pw.EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey100,
+                borderRadius: pw.BorderRadius.circular(4),
+                border: pw.Border.all(color: PdfColors.grey300),
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Expanded(
+                    child: pw.Text(
+                      NumberToWordsConverter.convert(grandTotal),
+                      style: pw.TextStyle(
+                          fontSize: 10,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.grey800),
+                    ),
+                  ),
+                  pw.Row(
+                    children: [
+                      pw.Text('Grand Total:  ',
+                          style: pw.TextStyle(
+                              fontSize: 12,
+                              fontWeight: pw.FontWeight.bold)),
+                      pw.Text(formatter.format(grandTotal),
+                          style: pw.TextStyle(
+                              fontSize: 13,
+                              fontWeight: pw.FontWeight.bold)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ];
         },
       ),
     );

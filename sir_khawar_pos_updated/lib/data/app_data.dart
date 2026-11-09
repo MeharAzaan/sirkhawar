@@ -11,6 +11,7 @@ import '../models/employee.dart';
 import '../models/bank_account.dart';
 import '../models/vendor.dart';
 import '../models/purchase.dart';
+import '../models/app_user.dart';
 
 class CompanySettings {
   String addressLine1;
@@ -74,6 +75,90 @@ class AppData {
   List<PurchaseReturn> purchaseReturns = [];
   CompanySettings settings = CompanySettings();
 
+  // ============ ACCESS CONTROL ============
+  List<AppUser> users = [];
+  AppUser? currentUser;
+
+  static const List<Map<String, String>> allScreenKeys = [
+    {'key': 'dashboard', 'label': 'Dashboard'},
+    {'key': 'expenses', 'label': 'Expenses'},
+    {'key': 'bank_cash', 'label': 'Bank & Cash'},
+    {'key': 'customer_cheques', 'label': 'Customer Cheques'},
+    {'key': 'inventory', 'label': 'Inventory'},
+    {'key': 'quotations', 'label': 'Quotations'},
+    {'key': 'invoices', 'label': 'Invoices'},
+    {'key': 'customers', 'label': 'Customers'},
+    {'key': 'employees', 'label': 'Employees'},
+    {'key': 'templates', 'label': 'Templates'},
+    {'key': 'settings', 'label': 'Settings'},
+    {'key': 'vendors', 'label': 'Vendors'},
+    {'key': 'purchases', 'label': 'Purchases'},
+    {'key': 'reports', 'label': 'Reports'},
+  ];
+
+  bool canAccess(String screenKey) {
+    if (currentUser == null) return false;
+    if (currentUser!.isAdmin) return true;
+    return currentUser!.allowedScreens.contains(screenKey);
+  }
+
+  Set<String> get allowedScreenKeys {
+    if (currentUser == null) return {};
+    if (currentUser!.isAdmin) {
+      return allScreenKeys.map((e) => e['key']!).toSet();
+    }
+    return currentUser!.allowedScreens.toSet();
+  }
+
+  void login(AppUser user) {
+    currentUser = user;
+    _notify();
+  }
+
+  void logout() {
+    currentUser = null;
+    _notify();
+  }
+
+  Future<void> addUser(AppUser user) async {
+    await _db.collection('users').doc(user.id).set(_userToMap(user));
+  }
+
+  Future<void> updateUserPermissions(
+      String userId, List<String> allowedScreens) async {
+    await _db.collection('users').doc(userId).update({
+      'allowedScreens': allowedScreens,
+    });
+  }
+
+  Future<void> updateUserName(String userId, String name) async {
+    await _db.collection('users').doc(userId).update({'name': name});
+  }
+
+  Future<void> deleteUser(String id) async {
+    await _db.collection('users').doc(id).delete();
+  }
+
+  AppUser _userFromDoc(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>? ?? {};
+    return AppUser(
+      id: d['id']?.toString() ?? doc.id,
+      name: d['name']?.toString() ?? '',
+      role: d['role']?.toString() ?? 'employee',
+      allowedScreens: (d['allowedScreens'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
+    );
+  }
+
+  Map<String, dynamic> _userToMap(AppUser u) => {
+        'id': u.id,
+        'name': u.name,
+        'role': u.role,
+        'allowedScreens': u.allowedScreens,
+      };
+  // ============ END ACCESS CONTROL ============
+
   String selectedCompanyFilter = 'all';
 
   String get selectedCompany => selectedCompanyFilter;
@@ -131,6 +216,9 @@ class AppData {
           chequeDate: DateTime.now().subtract(const Duration(minutes: 1)),
           logoPath: p.logoPath,
           bankId: p.bankId,
+          supplierId: p.supplierId,
+          supplierName: p.supplierName,
+          supplierPaymentAmount: p.supplierPaymentAmount,
         );
       }
       return p;
@@ -158,39 +246,32 @@ class AppData {
 
   // ============ COMPUTED BALANCES BY COMPANY ============
 
-  /// Get cash balance for a specific company
   double getCashBalance(String company) {
     double b = settings.getOpeningCash(company);
-
-    // Sales Cash Receipts (+ Credit Inflow)
     for (final s in salesHistory) {
       if (s.company == company) {
         for (final p in s.payments) {
           if (p.method == PaymentMethod.cash) {
-            b += p.amount;
+            b += p.netToBusiness;
           }
         }
       }
     }
-    // Expenses (- Debit Outflow)
     for (final e in expenses) {
       if (e.company == company && e.paidFrom == 'cash') {
         b -= e.amount;
       }
     }
-    // Salaries (- Debit Outflow)
     for (final s in salaryRecords) {
       if (s.company == company && s.method == PaymentMethod.cash) {
         b -= s.amount;
       }
     }
-    // Purchases (- Debit Outflow)
     for (final p in purchases) {
       if (p.company == company && p.paymentMethod == 'cash') {
         b -= p.totalAmount;
       }
     }
-    // Purchase Returns (+ Credit Inflow Refund)
     for (final r in purchaseReturns) {
       if (r.company == company && r.paymentMethod == 'cash') {
         b += r.totalAmount;
@@ -210,29 +291,26 @@ class AppData {
     }
   }
 
-  /// Get balance of a specific bank account
   double getBankBalance(String bankId) {
     final normalizedId = normalizeBankId(bankId);
     final bank = banks.where((b) => b.id == normalizedId).firstOrNull;
     double b = bank?.openingBalance ?? 0.0;
 
-    // Incoming payments (+ Credit Inflow)
     for (final s in salesHistory) {
       for (final p in s.payments) {
         final pBankId = p.bankId.isNotEmpty ? p.bankId : 'default_bank';
         if (pBankId == normalizedId) {
           if (p.method == PaymentMethod.online) {
-            b += p.amount;
+            b += p.netToBusiness;
           }
           if (p.method == PaymentMethod.cheque &&
               (p.chequeDate == null || !p.chequeDate!.isAfter(DateTime.now()))) {
-            b += p.amount;
+            b += p.netToBusiness;
           }
         }
       }
     }
 
-    // Outgoing expenses (- Debit Outflow)
     for (final e in expenses) {
       final eBankId = normalizeBankId(e.paidFrom);
       if (eBankId == normalizedId) {
@@ -240,7 +318,6 @@ class AppData {
       }
     }
 
-    // Outgoing salaries (- Debit Outflow)
     for (final s in salaryRecords) {
       final sBankId = s.bankId.isNotEmpty ? s.bankId : 'default_bank';
       if (sBankId == normalizedId && s.method == PaymentMethod.online) {
@@ -248,7 +325,6 @@ class AppData {
       }
     }
 
-    // Outgoing purchases (- Debit Outflow)
     for (final p in purchases) {
       if (p.bankId == null || p.bankId!.isEmpty) continue;
       final pBankId = normalizeBankId(p.bankId!);
@@ -263,7 +339,6 @@ class AppData {
       }
     }
 
-    // Incoming purchase returns (+ Credit Inflow)
     for (final r in purchaseReturns) {
       if (r.paymentMethod == 'bank' || r.paymentMethod == 'cheque') {
         if (r.bankId == null || r.bankId!.isEmpty) continue;
@@ -307,7 +382,7 @@ class AppData {
         if (p.method == PaymentMethod.cheque &&
             p.chequeDate != null &&
             p.chequeDate!.isAfter(DateTime.now())) {
-          t += p.amount;
+          t += p.netToBusiness;
         }
       }
     }
@@ -328,8 +403,7 @@ class AppData {
     return count;
   }
 
-  int get totalStock =>
-      products.fold(0, (s, p) => s + p.quantity);
+  int get totalStock => products.fold(0, (s, p) => s + p.quantity);
 
   double get totalInvoiceAmount =>
       filteredSalesHistory.fold(0.0, (s, x) => s + x.totalAmount);
@@ -346,15 +420,27 @@ class AppData {
       products = snap.docs.map(_productFromDoc).toList();
       _notify();
     }));
-    _subs.add(_db.collection('quotations').orderBy('createdDate', descending: true).snapshots().listen((snap) {
+    _subs.add(_db
+        .collection('quotations')
+        .orderBy('createdDate', descending: true)
+        .snapshots()
+        .listen((snap) {
       quotations = snap.docs.map(_quotationFromDoc).toList();
       _notify();
     }));
-    _subs.add(_db.collection('sales').orderBy('dateOfPurchase', descending: true).snapshots().listen((snap) {
+    _subs.add(_db
+        .collection('sales')
+        .orderBy('dateOfPurchase', descending: true)
+        .snapshots()
+        .listen((snap) {
       salesHistory = snap.docs.map(_saleFromDoc).toList();
       _notify();
     }));
-    _subs.add(_db.collection('expenses').orderBy('date', descending: true).snapshots().listen((snap) {
+    _subs.add(_db
+        .collection('expenses')
+        .orderBy('date', descending: true)
+        .snapshots()
+        .listen((snap) {
       expenses = snap.docs.map(_expenseFromDoc).toList();
       _notify();
     }));
@@ -362,7 +448,11 @@ class AppData {
       employees = snap.docs.map(_employeeFromDoc).toList();
       _notify();
     }));
-    _subs.add(_db.collection('salaryRecords').orderBy('paymentDate', descending: true).snapshots().listen((snap) {
+    _subs.add(_db
+        .collection('salaryRecords')
+        .orderBy('paymentDate', descending: true)
+        .snapshots()
+        .listen((snap) {
       salaryRecords = snap.docs.map(_salaryRecordFromDoc).toList();
       _notify();
     }));
@@ -370,7 +460,11 @@ class AppData {
       quotationTemplates = snap.docs.map(_templateFromDoc).toList();
       _notify();
     }));
-    _subs.add(_db.collection('settings').doc('company').snapshots().listen((snap) {
+    _subs.add(_db
+        .collection('settings')
+        .doc('company')
+        .snapshots()
+        .listen((snap) {
       if (snap.exists) settings = _settingsFromDoc(snap);
       _notify();
     }));
@@ -380,15 +474,36 @@ class AppData {
     }));
     _subs.add(_db.collection('vendors').snapshots().listen((snap) {
       vendors = snap.docs.map(_vendorFromDoc).toList();
-      vendors.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      vendors.sort(
+          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
       _notify();
     }));
-    _subs.add(_db.collection('purchases').orderBy('purchaseDate', descending: true).snapshots().listen((snap) {
+    _subs.add(_db
+        .collection('purchases')
+        .orderBy('purchaseDate', descending: true)
+        .snapshots()
+        .listen((snap) {
       purchases = snap.docs.map(_purchaseFromDoc).toList();
       _notify();
     }));
-    _subs.add(_db.collection('purchase_returns').orderBy('returnDate', descending: true).snapshots().listen((snap) {
+    _subs.add(_db
+        .collection('purchase_returns')
+        .orderBy('returnDate', descending: true)
+        .snapshots()
+        .listen((snap) {
       purchaseReturns = snap.docs.map(_purchaseReturnFromDoc).toList();
+      _notify();
+    }));
+
+    // Users listener (ADDED)
+    _subs.add(_db.collection('users').snapshots().listen((snap) {
+      users = snap.docs.map(_userFromDoc).toList();
+      if (currentUser != null) {
+        final updated = users.where((u) => u.id == currentUser!.id).toList();
+        if (updated.isNotEmpty) {
+          currentUser = updated.first;
+        }
+      }
       _notify();
     }));
 
@@ -399,16 +514,32 @@ class AppData {
     try {
       final r = await Future.wait([
         _db.collection('products').get(),
-        _db.collection('quotations').orderBy('createdDate', descending: true).get(),
-        _db.collection('sales').orderBy('dateOfPurchase', descending: true).get(),
+        _db
+            .collection('quotations')
+            .orderBy('createdDate', descending: true)
+            .get(),
+        _db
+            .collection('sales')
+            .orderBy('dateOfPurchase', descending: true)
+            .get(),
         _db.collection('expenses').orderBy('date', descending: true).get(),
         _db.collection('employees').get(),
-        _db.collection('salaryRecords').orderBy('paymentDate', descending: true).get(),
+        _db
+            .collection('salaryRecords')
+            .orderBy('paymentDate', descending: true)
+            .get(),
         _db.collection('templates').get(),
         _db.collection('banks').get(),
         _db.collection('vendors').get(),
-        _db.collection('purchases').orderBy('purchaseDate', descending: true).get(),
-        _db.collection('purchase_returns').orderBy('returnDate', descending: true).get(),
+        _db
+            .collection('purchases')
+            .orderBy('purchaseDate', descending: true)
+            .get(),
+        _db
+            .collection('purchase_returns')
+            .orderBy('returnDate', descending: true)
+            .get(),
+        _db.collection('users').get(),
       ]);
       products = r[0].docs.map(_productFromDoc).toList();
       quotations = r[1].docs.map(_quotationFromDoc).toList();
@@ -419,9 +550,11 @@ class AppData {
       quotationTemplates = r[6].docs.map(_templateFromDoc).toList();
       banks = r[7].docs.map(_bankFromDoc).toList();
       vendors = r[8].docs.map(_vendorFromDoc).toList();
-      vendors.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      vendors.sort(
+          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
       purchases = r[9].docs.map(_purchaseFromDoc).toList();
       purchaseReturns = r[10].docs.map(_purchaseReturnFromDoc).toList();
+      users = r[11].docs.map(_userFromDoc).toList();
       final sd = await _db.collection('settings').doc('company').get();
       if (sd.exists) settings = _settingsFromDoc(sd);
     } catch (e) {
@@ -441,23 +574,54 @@ class AppData {
     try {
       final ps = await _db.collection('products').get();
       if (ps.docs.isEmpty) {
-        await _db.collection('products').doc('P001').set(_productToMap(Product(id: 'P001', name: 'Solar Panel 400W', category: 'Solar', price: 15000, quantity: 25)));
-        await _db.collection('products').doc('P002').set(_productToMap(Product(id: 'P002', name: 'Inverter 5KW', category: 'Inverters', price: 85000, quantity: 10)));
+        await _db.collection('products').doc('P001').set(_productToMap(Product(
+            id: 'P001',
+            name: 'Solar Panel 400W',
+            category: 'Solar',
+            price: 15000,
+            quantity: 25)));
+        await _db.collection('products').doc('P002').set(_productToMap(Product(
+            id: 'P002',
+            name: 'Inverter 5KW',
+            category: 'Inverters',
+            price: 85000,
+            quantity: 10)));
       }
       final ss = await _db.collection('settings').doc('company').get();
-      if (!ss.exists) await _db.collection('settings').doc('company').set(_settingsToMap(CompanySettings()));
+      if (!ss.exists) {
+        await _db
+            .collection('settings')
+            .doc('company')
+            .set(_settingsToMap(CompanySettings()));
+      }
       final ic = await _db.collection('counters').doc('invoiceCounter').get();
-      if (!ic.exists) await _db.collection('counters').doc('invoiceCounter').set({'lastNumber': 1000});
+      if (!ic.exists) {
+        await _db
+            .collection('counters')
+            .doc('invoiceCounter')
+            .set({'lastNumber': 1000});
+      }
       final qc = await _db.collection('counters').doc('quotationCounter').get();
-      if (!qc.exists) await _db.collection('counters').doc('quotationCounter').set({'lastNumber': 100});
+      if (!qc.exists) {
+        await _db
+            .collection('counters')
+            .doc('quotationCounter')
+            .set({'lastNumber': 100});
+      }
       final pc = await _db.collection('counters').doc('purchaseCounter').get();
-      if (!pc.exists) await _db.collection('counters').doc('purchaseCounter').set({'lastNumber': 0});
+      if (!pc.exists) {
+        await _db
+            .collection('counters')
+            .doc('purchaseCounter')
+            .set({'lastNumber': 0});
+      }
 
       final banksSnap = await _db.collection('banks').get();
       if (banksSnap.docs.isEmpty) {
         final sd = await _db.collection('settings').doc('company').get();
         final openingBank = sd.exists
-            ? ((sd.data()?['openingBankBalance'] as num?)?.toDouble() ?? 500000.0)
+            ? ((sd.data()?['openingBankBalance'] as num?)?.toDouble() ??
+                500000.0)
             : 500000.0;
         await _db.collection('banks').doc('default_bank').set({
           'id': 'default_bank',
@@ -466,6 +630,17 @@ class AppData {
           'accountTitle': '',
           'openingBalance': openingBank,
           'company': AppCompanies.energy,
+        });
+      }
+
+      // Seed admin user if no users exist (ADDED)
+      final usersSnap = await _db.collection('users').get();
+      if (usersSnap.docs.isEmpty) {
+        await _db.collection('users').doc('admin').set({
+          'id': 'admin',
+          'name': 'Admin',
+          'role': 'admin',
+          'allowedScreens': [],
         });
       }
     } catch (e) {
@@ -515,7 +690,16 @@ class AppData {
       description: d['description']?.toString() ?? '',
     );
   }
-  Map<String, dynamic> _productToMap(Product p) => {'id': p.id, 'name': p.name, 'category': p.category, 'price': p.price, 'quantity': p.quantity, 'unit': p.unit, 'description': p.description};
+
+  Map<String, dynamic> _productToMap(Product p) => {
+        'id': p.id,
+        'name': p.name,
+        'category': p.category,
+        'price': p.price,
+        'quantity': p.quantity,
+        'unit': p.unit,
+        'description': p.description
+      };
 
   Quotation _quotationFromDoc(DocumentSnapshot doc) {
     final d = doc.data() as Map<String, dynamic>? ?? {};
@@ -544,13 +728,27 @@ class AppData {
       company: d['company']?.toString() ?? AppCompanies.energy,
     );
   }
+
   Map<String, dynamic> _quotationToMap(Quotation q) => {
-    'id': q.id, 'customerName': q.customerName, 'customerPhone': q.customerPhone,
-    'customerEmail': q.customerEmail, 'customerAddress': q.customerAddress,
-    'items': q.items.map((i) => {'productId': i.productId, 'productName': i.productName, 'unitPrice': i.unitPrice, 'quantity': i.quantity, 'discount': i.discount}).toList(),
-    'createdDate': Timestamp.fromDate(q.createdDate), 'status': q.status.name, 'notes': q.notes,
-    'company': q.company,
-  };
+        'id': q.id,
+        'customerName': q.customerName,
+        'customerPhone': q.customerPhone,
+        'customerEmail': q.customerEmail,
+        'customerAddress': q.customerAddress,
+        'items': q.items
+            .map((i) => {
+                  'productId': i.productId,
+                  'productName': i.productName,
+                  'unitPrice': i.unitPrice,
+                  'quantity': i.quantity,
+                  'discount': i.discount
+                })
+            .toList(),
+        'createdDate': Timestamp.fromDate(q.createdDate),
+        'status': q.status.name,
+        'notes': q.notes,
+        'company': q.company,
+      };
 
   SaleHistory _saleFromDoc(DocumentSnapshot doc) {
     final d = doc.data() as Map<String, dynamic>? ?? {};
@@ -581,12 +779,19 @@ class AppData {
           chequeNumber: pMap['chequeNumber']?.toString() ?? '',
           bankName: pMap['bankName']?.toString() ?? '',
           transactionId: pMap['transactionId']?.toString() ?? '',
-          chequeDate: pMap['chequeDate'] != null ? (pMap['chequeDate'] as Timestamp).toDate() : null,
+          chequeDate: pMap['chequeDate'] != null
+              ? (pMap['chequeDate'] as Timestamp).toDate()
+              : null,
           logoPath: pMap['logoPath']?.toString() ?? '',
           bankId: pMap['bankId']?.toString() ?? 'default_bank',
+          supplierId: pMap['supplierId']?.toString() ?? '',
+          supplierName: pMap['supplierName']?.toString() ?? '',
+          supplierPaymentAmount:
+              (pMap['supplierPaymentAmount'] as num?)?.toDouble() ?? 0.0,
         );
       }).toList(),
-      dateOfPurchase: (d['dateOfPurchase'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      dateOfPurchase:
+          (d['dateOfPurchase'] as Timestamp?)?.toDate() ?? DateTime.now(),
       quotationId: d['quotationId']?.toString() ?? '',
       notes: d['notes']?.toString() ?? '',
       company: d['company']?.toString() ?? AppCompanies.energy,
@@ -594,20 +799,45 @@ class AppData {
   }
 
   Map<String, dynamic> _saleToMap(SaleHistory s) => {
-    'id': s.id, 'invoiceNumber': s.invoiceNumber, 'customerName': s.customerName,
-    'customerPhone': s.customerPhone, 'customerAddress': s.customerAddress,
-    'items': s.items.map((i) => {'productId': i.productId, 'productName': i.productName, 'unitPrice': i.unitPrice, 'quantity': i.quantity, 'discount': i.discount}).toList(),
-    'totalAmount': s.totalAmount,
-    'payments': s.payments.map((p) => {
-      'id': p.id, 'amount': p.amount, 'date': Timestamp.fromDate(p.date), 'method': p.method.name,
-      'chequeNumber': p.chequeNumber, 'bankName': p.bankName, 'transactionId': p.transactionId,
-      'chequeDate': p.chequeDate != null ? Timestamp.fromDate(p.chequeDate!) : null,
-      'logoPath': p.logoPath,
-      'bankId': p.bankId,
-    }).toList(),
-    'dateOfPurchase': Timestamp.fromDate(s.dateOfPurchase), 'quotationId': s.quotationId, 'notes': s.notes,
-    'company': s.company,
-  };
+        'id': s.id,
+        'invoiceNumber': s.invoiceNumber,
+        'customerName': s.customerName,
+        'customerPhone': s.customerPhone,
+        'customerAddress': s.customerAddress,
+        'items': s.items
+            .map((i) => {
+                  'productId': i.productId,
+                  'productName': i.productName,
+                  'unitPrice': i.unitPrice,
+                  'quantity': i.quantity,
+                  'discount': i.discount
+                })
+            .toList(),
+        'totalAmount': s.totalAmount,
+        'payments': s.payments
+            .map((p) => {
+                  'id': p.id,
+                  'amount': p.amount,
+                  'date': Timestamp.fromDate(p.date),
+                  'method': p.method.name,
+                  'chequeNumber': p.chequeNumber,
+                  'bankName': p.bankName,
+                  'transactionId': p.transactionId,
+                  'chequeDate': p.chequeDate != null
+                      ? Timestamp.fromDate(p.chequeDate!)
+                      : null,
+                  'logoPath': p.logoPath,
+                  'bankId': p.bankId,
+                  'supplierId': p.supplierId,
+                  'supplierName': p.supplierName,
+                  'supplierPaymentAmount': p.supplierPaymentAmount,
+                })
+            .toList(),
+        'dateOfPurchase': Timestamp.fromDate(s.dateOfPurchase),
+        'quotationId': s.quotationId,
+        'notes': s.notes,
+        'company': s.company,
+      };
 
   Expense _expenseFromDoc(DocumentSnapshot doc) {
     final d = doc.data() as Map<String, dynamic>? ?? {};
@@ -623,10 +853,14 @@ class AppData {
   }
 
   Map<String, dynamic> _expenseToMap(Expense e) => {
-    'id': e.id, 'description': e.description, 'amount': e.amount,
-    'date': Timestamp.fromDate(e.date), 'category': e.category,
-    'paidFrom': e.paidFrom, 'company': e.company,
-  };
+        'id': e.id,
+        'description': e.description,
+        'amount': e.amount,
+        'date': Timestamp.fromDate(e.date),
+        'category': e.category,
+        'paidFrom': e.paidFrom,
+        'company': e.company,
+      };
 
   Employee _employeeFromDoc(DocumentSnapshot doc) {
     final d = doc.data() as Map<String, dynamic>? ?? {};
@@ -640,7 +874,14 @@ class AppData {
     );
   }
 
-  Map<String, dynamic> _employeeToMap(Employee e) => {'id': e.id, 'name': e.name, 'phone': e.phone, 'role': e.role, 'baseSalary': e.baseSalary, 'joinDate': Timestamp.fromDate(e.joinDate)};
+  Map<String, dynamic> _employeeToMap(Employee e) => {
+        'id': e.id,
+        'name': e.name,
+        'phone': e.phone,
+        'role': e.role,
+        'baseSalary': e.baseSalary,
+        'joinDate': Timestamp.fromDate(e.joinDate)
+      };
 
   SalaryRecord _salaryRecordFromDoc(DocumentSnapshot doc) {
     final d = doc.data() as Map<String, dynamic>? ?? {};
@@ -650,7 +891,8 @@ class AppData {
       employeeName: d['employeeName']?.toString() ?? '',
       amount: (d['amount'] as num?)?.toDouble() ?? 0.0,
       salaryMonth: d['salaryMonth']?.toString() ?? '',
-      paymentDate: (d['paymentDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      paymentDate:
+          (d['paymentDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
       method: _parsePaymentMethod(d['method']),
       notes: d['notes']?.toString() ?? '',
       bankId: d['bankId']?.toString() ?? 'default_bank',
@@ -659,12 +901,17 @@ class AppData {
   }
 
   Map<String, dynamic> _salaryRecordToMap(SalaryRecord s) => {
-    'id': s.id, 'employeeId': s.employeeId, 'employeeName': s.employeeName,
-    'amount': s.amount, 'salaryMonth': s.salaryMonth,
-    'paymentDate': Timestamp.fromDate(s.paymentDate),
-    'method': s.method.name, 'notes': s.notes,
-    'bankId': s.bankId, 'company': s.company,
-  };
+        'id': s.id,
+        'employeeId': s.employeeId,
+        'employeeName': s.employeeName,
+        'amount': s.amount,
+        'salaryMonth': s.salaryMonth,
+        'paymentDate': Timestamp.fromDate(s.paymentDate),
+        'method': s.method.name,
+        'notes': s.notes,
+        'bankId': s.bankId,
+        'company': s.company,
+      };
 
   QuotationTemplate _templateFromDoc(DocumentSnapshot doc) {
     final d = doc.data() as Map<String, dynamic>? ?? {};
@@ -685,7 +932,20 @@ class AppData {
     );
   }
 
-  Map<String, dynamic> _templateToMap(QuotationTemplate t) => {'id': t.id, 'name': t.name, 'items': t.items.map((i) => {'productId': i.productId, 'productName': i.productName, 'unitPrice': i.unitPrice, 'quantity': i.quantity, 'discount': i.discount}).toList(), 'notes': t.notes};
+  Map<String, dynamic> _templateToMap(QuotationTemplate t) => {
+        'id': t.id,
+        'name': t.name,
+        'items': t.items
+            .map((i) => {
+                  'productId': i.productId,
+                  'productName': i.productName,
+                  'unitPrice': i.unitPrice,
+                  'quantity': i.quantity,
+                  'discount': i.discount
+                })
+            .toList(),
+        'notes': t.notes
+      };
 
   Vendor _vendorFromDoc(DocumentSnapshot doc) {
     final d = doc.data() as Map<String, dynamic>? ?? {};
@@ -697,7 +957,8 @@ class AppData {
       address: d['address']?.toString() ?? '',
       company: d['company']?.toString() ?? '',
       notes: d['notes']?.toString() ?? '',
-      createdDate: (d['createdDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      createdDate:
+          (d['createdDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
   }
 
@@ -739,59 +1000,91 @@ class AppData {
       openingCashEnergy: (cashE ?? cashOld ?? 46500.0).toDouble(),
       openingCashElectric: (cashEl ?? 0.0).toDouble(),
       openingBankBalance: (bankOld ?? 500000.0).toDouble(),
-      logoPathEnergy: d['logoPathEnergy']?.toString() ?? d['logoPath']?.toString() ?? 'assets/images/logo.jpeg',
+      logoPathEnergy: d['logoPathEnergy']?.toString() ??
+          d['logoPath']?.toString() ??
+          'assets/images/logo.jpeg',
       logoPathElectric: d['logoPathElectric']?.toString() ?? '',
     );
   }
 
   Map<String, dynamic> _settingsToMap(CompanySettings s) => {
-    'addressLine1': s.addressLine1,
-    'addressLine2': s.addressLine2,
-    'addressLine3': s.addressLine3,
-    'phone': s.phone,
-    'openingCashEnergy': s.openingCashEnergy,
-    'openingCashElectric': s.openingCashElectric,
-    'openingBankBalance': s.openingBankBalance,
-    'logoPathEnergy': s.logoPathEnergy,
-    'logoPathElectric': s.logoPathElectric,
-  };
+        'addressLine1': s.addressLine1,
+        'addressLine2': s.addressLine2,
+        'addressLine3': s.addressLine3,
+        'phone': s.phone,
+        'openingCashEnergy': s.openingCashEnergy,
+        'openingCashElectric': s.openingCashElectric,
+        'openingBankBalance': s.openingBankBalance,
+        'logoPathEnergy': s.logoPathEnergy,
+        'logoPathElectric': s.logoPathElectric,
+      };
 
   // ============ CRUD ============
-  Future<void> addProduct(Product p) async => await _db.collection('products').doc(p.id).set(_productToMap(p));
-  Future<void> updateProduct(Product p) async => await _db.collection('products').doc(p.id).set(_productToMap(p));
-  Future<void> deleteProduct(String id) async => await _db.collection('products').doc(id).delete();
+  Future<void> addProduct(Product p) async =>
+      await _db.collection('products').doc(p.id).set(_productToMap(p));
+  Future<void> updateProduct(Product p) async =>
+      await _db.collection('products').doc(p.id).set(_productToMap(p));
+  Future<void> deleteProduct(String id) async =>
+      await _db.collection('products').doc(id).delete();
 
-  Future<void> addQuotation(Quotation q) async => await _db.collection('quotations').doc(q.id).set(_quotationToMap(q));
-  Future<void> updateQuotation(Quotation q) async => await _db.collection('quotations').doc(q.id).set(_quotationToMap(q));
-  Future<void> deleteQuotation(String id) async => await _db.collection('quotations').doc(id).delete();
+  Future<void> addQuotation(Quotation q) async =>
+      await _db.collection('quotations').doc(q.id).set(_quotationToMap(q));
+  Future<void> updateQuotation(Quotation q) async =>
+      await _db.collection('quotations').doc(q.id).set(_quotationToMap(q));
+  Future<void> deleteQuotation(String id) async =>
+      await _db.collection('quotations').doc(id).delete();
 
-  Future<void> addSale(SaleHistory s) async => await _db.collection('sales').doc(s.id).set(_saleToMap(s));
-  Future<void> updateSale(SaleHistory s) async => await _db.collection('sales').doc(s.id).set(_saleToMap(s));
-  Future<void> deleteSale(String id) async => await _db.collection('sales').doc(id).delete();
+  Future<void> addSale(SaleHistory s) async =>
+      await _db.collection('sales').doc(s.id).set(_saleToMap(s));
+  Future<void> updateSale(SaleHistory s) async =>
+      await _db.collection('sales').doc(s.id).set(_saleToMap(s));
+  Future<void> deleteSale(String id) async =>
+      await _db.collection('sales').doc(id).delete();
 
-  Future<void> addExpense(Expense e) async => await _db.collection('expenses').doc(e.id).set(_expenseToMap(e));
-  Future<void> deleteExpense(String id) async => await _db.collection('expenses').doc(id).delete();
+  Future<void> addExpense(Expense e) async =>
+      await _db.collection('expenses').doc(e.id).set(_expenseToMap(e));
+  Future<void> deleteExpense(String id) async =>
+      await _db.collection('expenses').doc(id).delete();
 
-  Future<void> addEmployee(Employee e) async => await _db.collection('employees').doc(e.id).set(_employeeToMap(e));
-  Future<void> updateEmployee(Employee e) async => await _db.collection('employees').doc(e.id).set(_employeeToMap(e));
-  Future<void> deleteEmployee(String id) async => await _db.collection('employees').doc(id).delete();
+  Future<void> addEmployee(Employee e) async =>
+      await _db.collection('employees').doc(e.id).set(_employeeToMap(e));
+  Future<void> updateEmployee(Employee e) async =>
+      await _db.collection('employees').doc(e.id).set(_employeeToMap(e));
+  Future<void> deleteEmployee(String id) async =>
+      await _db.collection('employees').doc(id).delete();
 
-  Future<void> addSalaryRecord(SalaryRecord s) async => await _db.collection('salaryRecords').doc(s.id).set(_salaryRecordToMap(s));
-  Future<void> deleteSalaryRecord(String id) async => await _db.collection('salaryRecords').doc(id).delete();
+  Future<void> addSalaryRecord(SalaryRecord s) async => await _db
+      .collection('salaryRecords')
+      .doc(s.id)
+      .set(_salaryRecordToMap(s));
+  Future<void> deleteSalaryRecord(String id) async =>
+      await _db.collection('salaryRecords').doc(id).delete();
 
-  Future<void> addTemplate(QuotationTemplate t) async => await _db.collection('templates').doc(t.id).set(_templateToMap(t));
-  Future<void> updateTemplate(QuotationTemplate t) async => await _db.collection('templates').doc(t.id).set(_templateToMap(t));
-  Future<void> deleteTemplate(String id) async => await _db.collection('templates').doc(id).delete();
+  Future<void> addTemplate(QuotationTemplate t) async =>
+      await _db.collection('templates').doc(t.id).set(_templateToMap(t));
+  Future<void> updateTemplate(QuotationTemplate t) async =>
+      await _db.collection('templates').doc(t.id).set(_templateToMap(t));
+  Future<void> deleteTemplate(String id) async =>
+      await _db.collection('templates').doc(id).delete();
 
-  Future<void> updateSettings(CompanySettings s) async => await _db.collection('settings').doc('company').set(_settingsToMap(s));
+  Future<void> updateSettings(CompanySettings s) async => await _db
+      .collection('settings')
+      .doc('company')
+      .set(_settingsToMap(s));
 
-  Future<void> addBank(BankAccount b) async => await _db.collection('banks').doc(b.id).set(_bankToMap(b));
-  Future<void> updateBank(BankAccount b) async => await _db.collection('banks').doc(b.id).set(_bankToMap(b));
-  Future<void> deleteBank(String id) async => await _db.collection('banks').doc(id).delete();
+  Future<void> addBank(BankAccount b) async =>
+      await _db.collection('banks').doc(b.id).set(_bankToMap(b));
+  Future<void> updateBank(BankAccount b) async =>
+      await _db.collection('banks').doc(b.id).set(_bankToMap(b));
+  Future<void> deleteBank(String id) async =>
+      await _db.collection('banks').doc(id).delete();
 
-  Future<void> addVendor(Vendor v) async => await _db.collection('vendors').doc(v.id).set(_vendorToMap(v));
-  Future<void> updateVendor(Vendor v) async => await _db.collection('vendors').doc(v.id).set(_vendorToMap(v));
-  Future<void> deleteVendor(String id) async => await _db.collection('vendors').doc(id).delete();
+  Future<void> addVendor(Vendor v) async =>
+      await _db.collection('vendors').doc(v.id).set(_vendorToMap(v));
+  Future<void> updateVendor(Vendor v) async =>
+      await _db.collection('vendors').doc(v.id).set(_vendorToMap(v));
+  Future<void> deleteVendor(String id) async =>
+      await _db.collection('vendors').doc(id).delete();
 
   // ============ PURCHASE CRUD ============
 
@@ -818,7 +1111,8 @@ class AppData {
         final existing = products.where((x) => x.id == item.productId).toList();
         if (existing.isNotEmpty) {
           final newQty = existing.first.quantity + item.quantity;
-          batch.update(_db.collection('products').doc(item.productId), {'quantity': newQty});
+          batch.update(_db.collection('products').doc(item.productId),
+              {'quantity': newQty});
         }
       }
     }
@@ -829,10 +1123,6 @@ class AppData {
   Future<void> deletePurchase(String id) async =>
       await _db.collection('purchases').doc(id).delete();
 
-  /// Process Purchase Return:
-  /// 1. Original Purchase record remains untouched.
-  /// 2. Deducts quantity from inventory.
-  /// 3. Adds PurchaseReturn document (CREDIT Inflow) into the selected account ledger (cash or bank).
   Future<void> processPurchaseReturn({
     required String purchaseId,
     required Map<int, int> returnQuantities,
@@ -851,21 +1141,26 @@ class AppData {
     double returnTotalAmount = 0.0;
 
     returnQuantities.forEach((itemIndex, qtyToReturn) {
-      if (itemIndex >= 0 && itemIndex < purchase.items.length && qtyToReturn > 0) {
+      if (itemIndex >= 0 &&
+          itemIndex < purchase.items.length &&
+          qtyToReturn > 0) {
         final item = purchase.items[itemIndex];
         final maxReturnable = item.quantity - item.returnedQuantity;
         final actualReturnQty = min(qtyToReturn, maxReturnable);
 
         if (actualReturnQty > 0) {
           final newReturnedQty = item.returnedQuantity + actualReturnQty;
-          updatedPurchaseItems[itemIndex] = item.copyWith(returnedQuantity: newReturnedQty);
+          updatedPurchaseItems[itemIndex] =
+              item.copyWith(returnedQuantity: newReturnedQty);
 
           if (item.productId.isNotEmpty) {
-            final prodIndex = products.indexWhere((pr) => pr.id == item.productId);
+            final prodIndex =
+                products.indexWhere((pr) => pr.id == item.productId);
             if (prodIndex != -1) {
               final currentProd = products[prodIndex];
               final newQty = max(0, currentProd.quantity - actualReturnQty);
-              batch.update(_db.collection('products').doc(item.productId), {'quantity': newQty});
+              batch.update(_db.collection('products').doc(item.productId),
+                  {'quantity': newQty});
             }
           }
 
@@ -899,7 +1194,8 @@ class AppData {
       chequeBankName: purchase.chequeBankName,
       company: purchase.company,
     );
-    batch.set(_db.collection('purchases').doc(purchase.id), _purchaseToMap(updatedPurchase));
+    batch.set(_db.collection('purchases').doc(purchase.id),
+        _purchaseToMap(updatedPurchase));
 
     final returnId = _db.collection('purchase_returns').doc().id;
     final purchaseReturn = PurchaseReturn(
@@ -915,7 +1211,8 @@ class AppData {
       company: purchase.company,
       notes: notes,
     );
-    batch.set(_db.collection('purchase_returns').doc(returnId), purchaseReturn.toMap());
+    batch.set(_db.collection('purchase_returns').doc(returnId),
+        purchaseReturn.toMap());
 
     await batch.commit();
   }
@@ -931,7 +1228,8 @@ class AppData {
 
     final Map<int, int> returnAllMap = {};
     for (int i = 0; i < purchase.items.length; i++) {
-      final rem = purchase.items[i].quantity - purchase.items[i].returnedQuantity;
+      final rem =
+          purchase.items[i].quantity - purchase.items[i].returnedQuantity;
       if (rem > 0) {
         returnAllMap[i] = rem;
       }
@@ -955,7 +1253,8 @@ class AppData {
     final purchase = purchases.firstWhere((p) => p.id == purchaseId);
     final batch = _db.batch();
 
-    batch.set(_db.collection('products').doc(newProduct.id), _productToMap(newProduct));
+    batch.set(_db.collection('products').doc(newProduct.id),
+        _productToMap(newProduct));
 
     final updatedItems = List<PurchaseItem>.from(purchase.items);
     updatedItems[itemIndex] = updatedItems[itemIndex].copyWith(
@@ -979,7 +1278,8 @@ class AppData {
       company: purchase.company,
     );
 
-    batch.set(_db.collection('purchases').doc(purchase.id), _purchaseToMap(updatedPurchase));
+    batch.set(_db.collection('purchases').doc(purchase.id),
+        _purchaseToMap(updatedPurchase));
 
     await batch.commit();
   }
@@ -989,7 +1289,8 @@ class AppData {
     final ref = _db.collection('counters').doc('invoiceCounter');
     final num = await _db.runTransaction<int>((tx) async {
       final snap = await tx.get(ref);
-      final cur = snap.exists ? (snap.data()?['lastNumber'] as int? ?? 1000) : 1000;
+      final cur =
+          snap.exists ? (snap.data()?['lastNumber'] as int? ?? 1000) : 1000;
       tx.set(ref, {'lastNumber': cur + 1});
       return cur + 1;
     });
@@ -1000,7 +1301,8 @@ class AppData {
     final ref = _db.collection('counters').doc('quotationCounter');
     final num = await _db.runTransaction<int>((tx) async {
       final snap = await tx.get(ref);
-      final cur = snap.exists ? (snap.data()?['lastNumber'] as int? ?? 100) : 100;
+      final cur =
+          snap.exists ? (snap.data()?['lastNumber'] as int? ?? 100) : 100;
       tx.set(ref, {'lastNumber': cur + 1});
       return cur + 1;
     });
@@ -1036,17 +1338,20 @@ class AppData {
     batch.set(_db.collection('sales').doc(saleId), _saleToMap(sale));
 
     quotation.status = QuotationStatus.invoiced;
-    batch.set(_db.collection('quotations').doc(quotation.id), _quotationToMap(quotation));
+    batch.set(_db.collection('quotations').doc(quotation.id),
+        _quotationToMap(quotation));
 
     final stockChanges = <String, int>{};
     for (final item in quotation.items) {
-      stockChanges[item.productId] = (stockChanges[item.productId] ?? 0) + item.quantity;
+      stockChanges[item.productId] =
+          (stockChanges[item.productId] ?? 0) + item.quantity;
     }
     for (final entry in stockChanges.entries) {
       final product = products.where((p) => p.id == entry.key).toList();
       if (product.isNotEmpty) {
         final newQty = max(0, product.first.quantity - entry.value);
-        batch.update(_db.collection('products').doc(entry.key), {'quantity': newQty});
+        batch.update(_db.collection('products').doc(entry.key),
+            {'quantity': newQty});
       }
     }
     await batch.commit();
@@ -1056,7 +1361,8 @@ class AppData {
     required Quotation oldQuotation,
     required Quotation newQuotation,
   }) async {
-    final linkedSale = salesHistory.where((s) => s.quotationId == oldQuotation.id).toList();
+    final linkedSale =
+        salesHistory.where((s) => s.quotationId == oldQuotation.id).toList();
     if (linkedSale.isEmpty) {
       await updateQuotation(newQuotation);
       return;
@@ -1066,22 +1372,28 @@ class AppData {
 
     final stockDelta = <String, int>{};
     for (final oldItem in oldQuotation.items) {
-      stockDelta[oldItem.productId] = (stockDelta[oldItem.productId] ?? 0) + oldItem.quantity;
+      stockDelta[oldItem.productId] =
+          (stockDelta[oldItem.productId] ?? 0) + oldItem.quantity;
     }
     for (final newItem in newQuotation.items) {
-      stockDelta[newItem.productId] = (stockDelta[newItem.productId] ?? 0) - newItem.quantity;
+      stockDelta[newItem.productId] =
+          (stockDelta[newItem.productId] ?? 0) - newItem.quantity;
     }
     for (final entry in stockDelta.entries) {
       final product = products.where((p) => p.id == entry.key).toList();
       if (product.isNotEmpty) {
         final newQty = max(0, product.first.quantity + entry.value);
-        batch.update(_db.collection('products').doc(entry.key), {'quantity': newQty});
+        batch.update(_db.collection('products').doc(entry.key),
+            {'quantity': newQty});
       }
     }
 
     final totalPaid = oldInv.payments.fold(0.0, (s, p) => s + p.amount);
-    newQuotation.status = totalPaid >= newQuotation.grandTotal ? QuotationStatus.invoiced : QuotationStatus.partiallyPaid;
-    batch.set(_db.collection('quotations').doc(newQuotation.id), _quotationToMap(newQuotation));
+    newQuotation.status = totalPaid >= newQuotation.grandTotal
+        ? QuotationStatus.invoiced
+        : QuotationStatus.partiallyPaid;
+    batch.set(_db.collection('quotations').doc(newQuotation.id),
+        _quotationToMap(newQuotation));
 
     final updatedInv = SaleHistory(
       id: oldInv.id,

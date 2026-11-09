@@ -59,7 +59,6 @@ class QuotationPreviewScreen extends StatelessWidget {
 
   Widget _buildLogo(String logoPath, String companyName) {
     if (logoPath.isNotEmpty) {
-      // If logo is a Flutter bundled asset
       if (logoPath.startsWith('assets/')) {
         return Image.asset(
           logoPath,
@@ -76,7 +75,6 @@ class QuotationPreviewScreen extends StatelessWidget {
         );
       }
 
-      // If logo is a local file picked from Settings
       final file = File(logoPath);
       if (file.existsSync()) {
         return Image.file(
@@ -95,7 +93,6 @@ class QuotationPreviewScreen extends StatelessWidget {
       }
     }
 
-    // Fallback: Display Company Name if no valid logo file exists
     return Text(
       companyName,
       style: const TextStyle(
@@ -116,6 +113,12 @@ class QuotationPreviewScreen extends StatelessWidget {
     final companyKey = quotation.company;
     final companyName = AppCompanies.label(companyKey);
     final logoPath = data.settings.getLogoPath(companyKey);
+
+    // Fixed right-column widths so numbers never stutter
+    const double colNo = 40;
+    const double colQty = 90;
+    const double colRate = 100;
+    const double colAmount = 110;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -253,7 +256,6 @@ class QuotationPreviewScreen extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Company Header Logo/Name (Strict per company)
                             Column(
                               children: [
                                 Center(child: _buildLogo(logoPath, companyName)),
@@ -289,7 +291,6 @@ class QuotationPreviewScreen extends StatelessWidget {
                                     ],
                                   ),
                                 ),
-                                // Date only — Status removed from preview
                                 Text(
                                   'Date: ${DateFormat('yyyy-MM-dd').format(quotation.createdDate)}',
                                   style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
@@ -298,89 +299,154 @@ class QuotationPreviewScreen extends StatelessWidget {
                             ),
                             const SizedBox(height: 18),
 
+                            // ── BOXED ITEMS TABLE ──
                             Container(
-                              color: AppColors.background,
-                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                              child: const Row(
+                              decoration: BoxDecoration(
+                                border: Border.all(color: AppColors.border),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              clipBehavior: Clip.antiAlias,
+                              child: Column(
                                 children: [
-                                  SizedBox(
-                                    width: 35,
-                                    child: Text('No', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600, fontSize: 12)),
+                                  // Header
+                                  Container(
+                                    color: AppColors.background,
+                                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                                    child: Row(
+                                      children: const [
+                                        SizedBox(
+                                          width: colNo,
+                                          child: Text('No',
+                                              style: TextStyle(
+                                                  color: AppColors.textSecondary,
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 12)),
+                                        ),
+                                        Expanded(
+                                          child: Text('Item',
+                                              style: TextStyle(
+                                                  color: AppColors.textSecondary,
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 12)),
+                                        ),
+                                        SizedBox(
+                                          width: colQty,
+                                          child: Text('Quantity',
+                                              textAlign: TextAlign.right,
+                                              style: TextStyle(
+                                                  color: AppColors.textSecondary,
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 12)),
+                                        ),
+                                        SizedBox(
+                                          width: colRate,
+                                          child: Text('Rate',
+                                              textAlign: TextAlign.right,
+                                              style: TextStyle(
+                                                  color: AppColors.textSecondary,
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 12)),
+                                        ),
+                                        SizedBox(
+                                          width: colAmount,
+                                          child: Text('Amount',
+                                              textAlign: TextAlign.right,
+                                              style: TextStyle(
+                                                  color: AppColors.textSecondary,
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 12)),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  Expanded(
-                                    flex: 5,
-                                    child: Text('Item', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600, fontSize: 12)),
-                                  ),
-                                  Expanded(
-                                    flex: 2,
-                                    child: Text('Quantity', textAlign: TextAlign.right, style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600, fontSize: 12)),
-                                  ),
-                                  Expanded(
-                                    flex: 2,
-                                    child: Text('Rate', textAlign: TextAlign.right, style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600, fontSize: 12)),
-                                  ),
-                                  Expanded(
-                                    flex: 2,
-                                    child: Text('Amount', textAlign: TextAlign.right, style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600, fontSize: 12)),
-                                  ),
+                                  const Divider(height: 1, color: AppColors.border),
+
+                                  // Rows
+                                  ...List.generate(quotation.items.length, (index) {
+                                    final item = quotation.items[index];
+                                    final isLast = index == quotation.items.length - 1;
+                                    return Container(
+                                      decoration: BoxDecoration(
+                                        color: index.isOdd
+                                            ? AppColors.background.withOpacity(0.5)
+                                            : AppColors.cardBg,
+                                        border: isLast
+                                            ? null
+                                            : const Border(
+                                                bottom: BorderSide(
+                                                    color: AppColors.border, width: 0.5),
+                                              ),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 12, horizontal: 12),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          SizedBox(
+                                            width: colNo,
+                                            child: Text('${index + 1}',
+                                                style: const TextStyle(
+                                                    color: AppColors.textSecondary,
+                                                    fontSize: 12)),
+                                          ),
+                                          // Item name wraps inside its cell only
+                                          Expanded(
+                                            child: Text(
+                                              item.productName,
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: AppColors.textPrimary,
+                                                fontWeight: FontWeight.w500,
+                                                height: 1.35,
+                                              ),
+                                            ),
+                                          ),
+                                          // Fixed numeric columns — no wrap
+                                          SizedBox(
+                                            width: colQty,
+                                            child: Text(
+                                              _formatQty(item.quantity),
+                                              textAlign: TextAlign.right,
+                                              softWrap: false,
+                                              overflow: TextOverflow.visible,
+                                              style: const TextStyle(
+                                                  color: AppColors.textSecondary,
+                                                  fontSize: 12),
+                                            ),
+                                          ),
+                                          SizedBox(
+                                            width: colRate,
+                                            child: Text(
+                                              _formatAmount(item.unitPrice),
+                                              textAlign: TextAlign.right,
+                                              softWrap: false,
+                                              overflow: TextOverflow.visible,
+                                              style: const TextStyle(
+                                                  color: AppColors.textSecondary,
+                                                  fontSize: 12),
+                                            ),
+                                          ),
+                                          SizedBox(
+                                            width: colAmount,
+                                            child: Text(
+                                              _formatAmount(item.total),
+                                              textAlign: TextAlign.right,
+                                              softWrap: false,
+                                              overflow: TextOverflow.visible,
+                                              style: const TextStyle(
+                                                  color: AppColors.textPrimary,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }),
                                 ],
                               ),
                             ),
-                            const Divider(height: 1, color: AppColors.border),
 
-                            ListView.separated(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: quotation.items.length,
-                              separatorBuilder: (context, index) => const Divider(height: 1, color: AppColors.border),
-                              itemBuilder: (context, index) {
-                                final item = quotation.items[index];
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.center,
-                                    children: [
-                                      SizedBox(
-                                        width: 35,
-                                        child: Text('${index + 1}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                                      ),
-                                      Expanded(
-                                        flex: 5,
-                                        child: Text(
-                                          item.productName,
-                                          style: const TextStyle(fontSize: 12, color: AppColors.textPrimary, fontWeight: FontWeight.w500),
-                                        ),
-                                      ),
-                                      Expanded(
-                                        flex: 2,
-                                        child: Text(
-                                          _formatQty(item.quantity),
-                                          textAlign: TextAlign.right,
-                                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                                        ),
-                                      ),
-                                      Expanded(
-                                        flex: 2,
-                                        child: Text(
-                                          _formatAmount(item.unitPrice),
-                                          textAlign: TextAlign.right,
-                                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                                        ),
-                                      ),
-                                      Expanded(
-                                        flex: 2,
-                                        child: Text(
-                                          _formatAmount(item.total),
-                                          textAlign: TextAlign.right,
-                                          style: const TextStyle(color: AppColors.textPrimary, fontSize: 12, fontWeight: FontWeight.w600),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                            const Divider(height: 1, color: AppColors.border),
                             const SizedBox(height: 14),
 
                             // Sub Total & Discount
@@ -393,8 +459,15 @@ class QuotationPreviewScreen extends StatelessWidget {
                                     Row(
                                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                       children: [
-                                        const Text('Sub Total:', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-                                        Text(_formatAmount(subtotal), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textPrimary)),
+                                        const Text('Sub Total:',
+                                            style: TextStyle(
+                                                color: AppColors.textSecondary,
+                                                fontSize: 13)),
+                                        Text(_formatAmount(subtotal),
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 13,
+                                                color: AppColors.textPrimary)),
                                       ],
                                     ),
                                     if (totalDiscount > 0) ...[
@@ -404,9 +477,15 @@ class QuotationPreviewScreen extends StatelessWidget {
                                         children: [
                                           Text(
                                             'Discount (${((totalDiscount / (subtotal == 0 ? 1 : subtotal)) * 100).toStringAsFixed(0)}%):',
-                                            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                                            style: const TextStyle(
+                                                color: AppColors.textSecondary,
+                                                fontSize: 13),
                                           ),
-                                          Text(_formatAmount(totalDiscount), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textPrimary)),
+                                          Text(_formatAmount(totalDiscount),
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 13,
+                                                  color: AppColors.textPrimary)),
                                         ],
                                       ),
                                     ],
@@ -429,7 +508,10 @@ class QuotationPreviewScreen extends StatelessWidget {
                                   Expanded(
                                     child: Text(
                                       NumberToWordsConverter.convert(grandTotal),
-                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.textSecondary),
+                                      style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                          color: AppColors.textSecondary),
                                     ),
                                   ),
                                   const SizedBox(width: 12),
@@ -438,11 +520,17 @@ class QuotationPreviewScreen extends StatelessWidget {
                                     children: [
                                       const Text(
                                         'Grand Total:  ',
-                                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                        style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: AppColors.textPrimary),
                                       ),
                                       Text(
                                         _formatAmount(grandTotal),
-                                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                        style: const TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.bold,
+                                            color: AppColors.textPrimary),
                                       ),
                                     ],
                                   ),

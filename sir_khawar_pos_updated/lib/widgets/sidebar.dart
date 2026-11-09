@@ -5,6 +5,7 @@ class Sidebar extends StatelessWidget {
   final Function(int) onItemSelected;
   final bool isCollapsed;
   final VoidCallback onToggle;
+  final Set<String> allowedKeys;
 
   const Sidebar({
     super.key,
@@ -12,26 +13,35 @@ class Sidebar extends StatelessWidget {
     required this.onItemSelected,
     required this.isCollapsed,
     required this.onToggle,
+    required this.allowedKeys,
   });
 
   @override
   Widget build(BuildContext context) {
     final navItems = [
-      {'icon': Icons.grid_view_rounded, 'label': 'Dashboard'},
-      {'icon': Icons.receipt_long_outlined, 'label': 'Expenses'},
-      {'icon': Icons.account_balance_outlined, 'label': 'Bank & Cash'},
-      {'icon': Icons.credit_card_outlined, 'label': 'Customer Cheques'},
-      {'icon': Icons.inventory_2_outlined, 'label': 'Inventory'},
-      {'icon': Icons.description_outlined, 'label': 'Quotations'},
-      {'icon': Icons.receipt_outlined, 'label': 'Invoices'},
-      {'icon': Icons.people_outline, 'label': 'Customers'},
-      {'icon': Icons.badge_outlined, 'label': 'Employees'},
-      {'icon': Icons.dashboard_customize_outlined, 'label': 'Templates'},
-      {'icon': Icons.settings_outlined, 'label': 'Settings'},
-      {'icon': Icons.store_outlined, 'label': 'Vendors'},
-      {'icon': Icons.shopping_bag_outlined, 'label': 'Purchases'},
-      {'icon': Icons.assessment_outlined, 'label': 'Reports'},
+      {'icon': Icons.grid_view_rounded, 'label': 'Dashboard', 'key': 'dashboard'},
+      {'icon': Icons.receipt_long_outlined, 'label': 'Expenses', 'key': 'expenses'},
+      {'icon': Icons.account_balance_outlined, 'label': 'Bank & Cash', 'key': 'bank_cash'},
+      {'icon': Icons.credit_card_outlined, 'label': 'Customer Cheques', 'key': 'customer_cheques'},
+      {'icon': Icons.inventory_2_outlined, 'label': 'Inventory', 'key': 'inventory'},
+      {'icon': Icons.description_outlined, 'label': 'Quotations', 'key': 'quotations'},
+      {'icon': Icons.receipt_outlined, 'label': 'Invoices', 'key': 'invoices'},
+      {'icon': Icons.people_outline, 'label': 'Customers', 'key': 'customers'},
+      {'icon': Icons.badge_outlined, 'label': 'Employees', 'key': 'employees'},
+      {'icon': Icons.dashboard_customize_outlined, 'label': 'Templates', 'key': 'templates'},
+      {'icon': Icons.settings_outlined, 'label': 'Settings', 'key': 'settings'},
+      {'icon': Icons.store_outlined, 'label': 'Vendors', 'key': 'vendors'},
+      {'icon': Icons.shopping_bag_outlined, 'label': 'Purchases', 'key': 'purchases'},
+      {'icon': Icons.assessment_outlined, 'label': 'Reports', 'key': 'reports'},
     ];
+
+    // Filter by allowed keys, preserve original index for correct screen routing
+    final filteredItems = <Map<String, dynamic>>[];
+    for (int i = 0; i < navItems.length; i++) {
+      if (allowedKeys.contains(navItems[i]['key'])) {
+        filteredItems.add({...navItems[i], 'originalIndex': i});
+      }
+    }
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
@@ -63,15 +73,16 @@ class Sidebar extends StatelessWidget {
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 12),
-              itemCount: navItems.length,
+              itemCount: filteredItems.length,
               itemBuilder: (context, index) {
-                final isSelected = selectedIndex == index;
-                final item = navItems[index];
+                final item = filteredItems[index];
+                final originalIndex = item['originalIndex'] as int;
+                final isSelected = selectedIndex == originalIndex;
 
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   child: InkWell(
-                    onTap: () => onItemSelected(index),
+                    onTap: () => onItemSelected(originalIndex),
                     borderRadius: BorderRadius.circular(8),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),

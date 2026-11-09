@@ -7,6 +7,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:sir_khawar_pos_updated/constants/app_colors.dart';
 import 'package:sir_khawar_pos_updated/data/app_data.dart';
+import 'package:sir_khawar_pos_updated/models/vendor.dart';
 
 import '../models/sale_history.dart';
 import '../models/quotation.dart';
@@ -18,8 +19,7 @@ class CustomerDetailScreen extends StatefulWidget {
   final String customerName;
 
   @override
-  State<CustomerDetailScreen> createState() =>
-      _CustomerDetailScreenState();
+  State<CustomerDetailScreen> createState() => _CustomerDetailScreenState();
 }
 
 class _CustomerDetailScreenState extends State<CustomerDetailScreen>
@@ -69,19 +69,22 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
       return;
     }
 
-    final amountCtrl = TextEditingController(
-        text: due > 0 ? due.toStringAsFixed(2) : '');
+    final amountCtrl =
+        TextEditingController(text: due > 0 ? due.toStringAsFixed(2) : '');
     final chequeNoCtrl = TextEditingController();
     final bankNameCtrl = TextEditingController();
     final txnCtrl = TextEditingController();
+    final supplierAmountCtrl = TextEditingController();
+    final supplierNoteCtrl = TextEditingController(
+        text: 'Direct payment from ${sale.customerName}');
+    
     PaymentMethod method = PaymentMethod.cash;
 
     // Filter company & banks
     String selectedCompany =
         (sale.company.isNotEmpty) ? sale.company : 'energy';
-    final initialMatchingBanks = data.banks
-        .where((b) => b.company == selectedCompany)
-        .toList();
+    final initialMatchingBanks =
+        data.banks.where((b) => b.company == selectedCompany).toList();
     String selectedBankId = initialMatchingBanks.isNotEmpty
         ? initialMatchingBanks.first.id
         : (data.banks.isNotEmpty ? data.banks.first.id : 'default_bank');
@@ -89,21 +92,33 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     DateTime? chequeDate;
     bool saving = false;
 
+    // Direct payment to supplier
+    bool directPayToSupplier = false;
+    String? selectedSupplierId;
+    String? selectedSupplierName;
+    String currentSupplierSearch = '';
+
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
-            final filteredBanks = data.banks
-                .where((b) => b.company == selectedCompany)
-                .toList();
+            final filteredBanks =
+                data.banks.where((b) => b.company == selectedCompany).toList();
 
-            // Fallback selection if current selectedBankId is invalid for company
             if (filteredBanks.isNotEmpty &&
                 !filteredBanks.any((b) => b.id == selectedBankId)) {
               selectedBankId = filteredBanks.first.id;
             }
+
+            final vendors = data.vendors;
+            final paymentAmount = double.tryParse(amountCtrl.text.trim()) ?? 0;
+            final supplierAmount =
+                double.tryParse(supplierAmountCtrl.text.trim()) ?? 0;
+            final netToBusiness = directPayToSupplier
+                ? (paymentAmount - supplierAmount)
+                : paymentAmount;
 
             return AlertDialog(
               backgroundColor: AppColors.cardBg,
@@ -129,196 +144,341 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                         keyboardType: const TextInputType.numberWithOptions(
                             decimal: true),
                         decoration: const InputDecoration(
-                          labelText: 'Amount *',
+                          labelText: 'Amount (Total Paid by Customer) *',
                           border: OutlineInputBorder(),
                           prefixText: 'Rs. ',
                         ),
+                        onChanged: (_) => setDialogState(() {}),
                       ),
                       const SizedBox(height: 12),
-                      DropdownButtonFormField<PaymentMethod>(
-                        value: method,
-                        decoration: const InputDecoration(
-                          labelText: 'Payment Method',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                              value: PaymentMethod.cash,
-                              child: Text('Cash')),
-                          DropdownMenuItem(
-                              value: PaymentMethod.online,
-                              child: Text('Bank / Online')),
-                          DropdownMenuItem(
-                              value: PaymentMethod.cheque,
-                              child: Text('Cheque')),
-                        ],
-                        onChanged: (v) {
-                          if (v != null) {
-                            setDialogState(() => method = v);
-                          }
+
+                      // Checkbox for direct payment
+                      InkWell(
+                        onTap: () {
+                          setDialogState(() {
+                            directPayToSupplier = !directPayToSupplier;
+                          });
                         },
+                        child: Row(
+                          children: [
+                            Checkbox(
+                              value: directPayToSupplier,
+                              activeColor: AppColors.cashGreen,
+                              onChanged: (v) {
+                                setDialogState(() {
+                                  directPayToSupplier = v ?? false;
+                                });
+                              },
+                            ),
+                            const Expanded(
+                              child: Text(
+                                'Direct Payment to Supplier',
+                                style: TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      // Bank picker for online payments
-                      if (method == PaymentMethod.online) ...[
+
+                      // ===== IF NOT DIRECT PAY, SHOW BANKS =====
+                      if (!directPayToSupplier) ...[
                         const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          value: selectedCompany,
+                        DropdownButtonFormField<PaymentMethod>(
+                          value: method,
                           decoration: const InputDecoration(
-                            labelText: 'Company',
+                            labelText: 'Payment Method',
                             border: OutlineInputBorder(),
                           ),
                           items: const [
                             DropdownMenuItem(
-                              value: 'energy',
-                              child: Text('Alternative Energy Solution'),
-                            ),
+                                value: PaymentMethod.cash, child: Text('Cash')),
                             DropdownMenuItem(
-                              value: 'electric',
-                              child: Text('Alternative Electric Solutions'),
-                            ),
+                                value: PaymentMethod.online,
+                                child: Text('Bank / Online')),
+                            DropdownMenuItem(
+                                value: PaymentMethod.cheque,
+                                child: Text('Cheque')),
                           ],
                           onChanged: (v) {
                             if (v != null) {
-                              setDialogState(() {
-                                selectedCompany = v;
-                                final updatedBanks = data.banks
-                                    .where((b) => b.company == selectedCompany)
-                                    .toList();
-                                if (updatedBanks.isNotEmpty) {
-                                  selectedBankId = updatedBanks.first.id;
-                                }
-                              });
+                              setDialogState(() => method = v);
                             }
                           },
                         ),
-                        const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          value: filteredBanks
-                                  .any((b) => b.id == selectedBankId)
-                              ? selectedBankId
-                              : (filteredBanks.isNotEmpty
-                                  ? filteredBanks.first.id
-                                  : null),
-                          decoration: const InputDecoration(
-                            labelText: 'Received In Bank',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: filteredBanks
-                              .map((b) => DropdownMenuItem(
-                                    value: b.id,
-                                    child: Text(b.name),
-                                  ))
-                              .toList(),
-                          onChanged: (v) {
-                            if (v != null) {
-                              setDialogState(() => selectedBankId = v);
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: txnCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Transaction ID (optional)',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ],
-                      if (method == PaymentMethod.cheque) ...[
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: chequeNoCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Cheque Number',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: bankNameCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Customer\'s Bank Name',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          value: selectedCompany,
-                          decoration: const InputDecoration(
-                            labelText: 'Company',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'energy',
-                              child: Text('Alternative Energy Solution'),
+                        if (method == PaymentMethod.online) ...[
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            value: selectedCompany,
+                            decoration: const InputDecoration(
+                              labelText: 'Company',
+                              border: OutlineInputBorder(),
                             ),
-                            DropdownMenuItem(
-                              value: 'electric',
-                              child: Text('Alternative Electric Solutions'),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'energy',
+                                child: Text('Alternative Energy Solution'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'electric',
+                                child: Text('Alternative Electric Solutions'),
+                              ),
+                            ],
+                            onChanged: (v) {
+                              if (v != null) {
+                                setDialogState(() {
+                                  selectedCompany = v;
+                                  final updatedBanks = data.banks
+                                      .where((b) => b.company == selectedCompany)
+                                      .toList();
+                                  if (updatedBanks.isNotEmpty) {
+                                    selectedBankId = updatedBanks.first.id;
+                                  }
+                                });
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            value: filteredBanks.any((b) => b.id == selectedBankId)
+                                ? selectedBankId
+                                : (filteredBanks.isNotEmpty
+                                    ? filteredBanks.first.id
+                                    : null),
+                            decoration: const InputDecoration(
+                              labelText: 'Received In Bank',
+                              border: OutlineInputBorder(),
                             ),
-                          ],
-                          onChanged: (v) {
-                            if (v != null) {
-                              setDialogState(() {
-                                selectedCompany = v;
-                                final updatedBanks = data.banks
-                                    .where((b) => b.company == selectedCompany)
-                                    .toList();
-                                if (updatedBanks.isNotEmpty) {
-                                  selectedBankId = updatedBanks.first.id;
-                                }
-                              });
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          value: filteredBanks
-                                  .any((b) => b.id == selectedBankId)
-                              ? selectedBankId
-                              : (filteredBanks.isNotEmpty
-                                  ? filteredBanks.first.id
-                                  : null),
-                          decoration: const InputDecoration(
-                            labelText: 'Deposit Into Bank',
-                            border: OutlineInputBorder(),
+                            items: filteredBanks
+                                .map((b) => DropdownMenuItem(
+                                      value: b.id,
+                                      child: Text(
+                                        b.name,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ))
+                                .toList(),
+                            onChanged: (v) {
+                              if (v != null) {
+                                setDialogState(() => selectedBankId = v);
+                              }
+                            },
                           ),
-                          items: filteredBanks
-                              .map((b) => DropdownMenuItem(
-                                    value: b.id,
-                                    child: Text(b.name),
-                                  ))
-                              .toList(),
-                          onChanged: (v) {
-                            if (v != null) {
-                              setDialogState(() => selectedBankId = v);
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            chequeDate == null
-                                ? 'Cheque Date (optional)'
-                                : 'Cheque Date: ${DateFormat('dd/MM/yyyy').format(chequeDate!)}',
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: txnCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Transaction ID (optional)',
+                              border: OutlineInputBorder(),
+                            ),
                           ),
-                          trailing: const Icon(Icons.calendar_today),
-                          onTap: () async {
-                            final picked = await showDatePicker(
-                              context: ctx,
-                              initialDate:
-                                  DateTime.now().add(const Duration(days: 7)),
-                              firstDate: DateTime.now()
-                                  .subtract(const Duration(days: 365)),
-                              lastDate: DateTime.now()
-                                  .add(const Duration(days: 365 * 2)),
+                        ],
+                        if (method == PaymentMethod.cheque) ...[
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: chequeNoCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Cheque Number',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: bankNameCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Customer\'s Bank Name',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            value: selectedCompany,
+                            decoration: const InputDecoration(
+                              labelText: 'Company',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'energy',
+                                child: Text('Alternative Energy Solution'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'electric',
+                                child: Text('Alternative Electric Solutions'),
+                              ),
+                            ],
+                            onChanged: (v) {
+                              if (v != null) {
+                                setDialogState(() {
+                                  selectedCompany = v;
+                                  final updatedBanks = data.banks
+                                      .where((b) => b.company == selectedCompany)
+                                      .toList();
+                                  if (updatedBanks.isNotEmpty) {
+                                    selectedBankId = updatedBanks.first.id;
+                                  }
+                                });
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            value: filteredBanks.any((b) => b.id == selectedBankId)
+                                ? selectedBankId
+                                : (filteredBanks.isNotEmpty
+                                    ? filteredBanks.first.id
+                                    : null),
+                            decoration: const InputDecoration(
+                              labelText: 'Deposit Into Bank',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: filteredBanks
+                                .map((b) => DropdownMenuItem(
+                                      value: b.id,
+                                      child: Text(
+                                        b.name,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ))
+                                .toList(),
+                            onChanged: (v) {
+                              if (v != null) {
+                                setDialogState(() => selectedBankId = v);
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              chequeDate == null
+                                  ? 'Cheque Date (optional)'
+                                  : 'Cheque Date: ${DateFormat('dd/MM/yyyy').format(chequeDate!)}',
+                            ),
+                            trailing: const Icon(Icons.calendar_today),
+                            onTap: () async {
+                              final picked = await showDatePicker(
+                                context: ctx,
+                                initialDate:
+                                    DateTime.now().add(const Duration(days: 7)),
+                                firstDate: DateTime.now()
+                                    .subtract(const Duration(days: 365)),
+                                lastDate: DateTime.now()
+                                    .add(const Duration(days: 365 * 2)),
+                              );
+                              if (picked != null) {
+                                setDialogState(() => chequeDate = picked);
+                              }
+                            },
+                          ),
+                        ],
+                      ] 
+                      // ===== IF DIRECT PAY TO SUPPLIER, SHOW ONLY SUPPLIER STUFF =====
+                      else ...[
+                        const SizedBox(height: 8),
+                        Autocomplete<Vendor>(
+                          displayStringForOption: (Vendor option) => option.name,
+                          optionsBuilder: (TextEditingValue textEditingValue) {
+                            if (textEditingValue.text.isEmpty) {
+                              return vendors;
+                            }
+                            return vendors.where((Vendor option) {
+                              return option.name
+                                  .toLowerCase()
+                                  .contains(textEditingValue.text.toLowerCase());
+                            });
+                          },
+                          onSelected: (Vendor selection) {
+                            setDialogState(() {
+                              selectedSupplierId = selection.id;
+                              selectedSupplierName = selection.name;
+                            });
+                          },
+                          fieldViewBuilder: (context, textEditingController,
+                              focusNode, onFieldSubmitted) {
+                            // Listen to changes to keep track of typed text
+                            textEditingController.addListener(() {
+                              currentSupplierSearch = textEditingController.text;
+                              if (textEditingController.text.isEmpty) {
+                                selectedSupplierId = null;
+                                selectedSupplierName = null;
+                              }
+                            });
+                            return TextFormField(
+                              controller: textEditingController,
+                              focusNode: focusNode,
+                              decoration: const InputDecoration(
+                                labelText: 'Search Supplier *',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.search),
+                              ),
                             );
-                            if (picked != null) {
-                              setDialogState(() => chequeDate = picked);
-                            }
                           },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: supplierAmountCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          decoration: const InputDecoration(
+                            labelText: 'Amount sent to Supplier *',
+                            border: OutlineInputBorder(),
+                            prefixText: 'Rs. ',
+                          ),
+                          onChanged: (_) => setDialogState(() {}),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: supplierNoteCtrl,
+                          maxLines: 2,
+                          decoration: const InputDecoration(
+                            labelText: 'Supplier Note (Optional)',
+                            border: OutlineInputBorder(),
+                            helperText: 'Saved in vendor purchase history',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.background,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Total customer pays: Rs. ${paymentAmount.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Direct to supplier: Rs. ${supplierAmount.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  color: AppColors.expenseRed,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Remaining to Business Cash: Rs. ${netToBusiness.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  color: AppColors.cashGreen,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ],
@@ -360,16 +520,61 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                             return;
                           }
 
-                          if (method != PaymentMethod.cash &&
+                          if (!directPayToSupplier &&
+                              method != PaymentMethod.cash &&
                               filteredBanks.isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text(
-                                    'No bank account found for this company. Please add a bank account first.'),
+                                    'No bank account found for this company.'),
                                 backgroundColor: AppColors.expenseRed,
                               ),
                             );
                             return;
+                          }
+
+                          // Direct supplier payment validation
+                          double supplierPayAmount = 0;
+                          if (directPayToSupplier) {
+                            // If they typed a name but didn't tap the autocomplete suggestion, try to find it
+                            if (selectedSupplierId == null) {
+                              try {
+                                final match = vendors.firstWhere((v) =>
+                                    v.name.toLowerCase() ==
+                                    currentSupplierSearch.trim().toLowerCase());
+                                selectedSupplierId = match.id;
+                                selectedSupplierName = match.name;
+                              } catch (_) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Please search and select a valid supplier'),
+                                    backgroundColor: AppColors.expenseRed,
+                                  ),
+                                );
+                                return;
+                              }
+                            }
+
+                            supplierPayAmount =
+                                double.tryParse(supplierAmountCtrl.text.trim()) ?? 0;
+                            if (supplierPayAmount <= 0) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Enter a valid amount sent to supplier'),
+                                  backgroundColor: AppColors.expenseRed,
+                                ),
+                              );
+                              return;
+                            }
+                            if (supplierPayAmount > amount + 0.01) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Supplier amount cannot exceed total payment amount'),
+                                  backgroundColor: AppColors.expenseRed,
+                                ),
+                              );
+                              return;
+                            }
                           }
 
                           setDialogState(() => saving = true);
@@ -381,16 +586,28 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                                   .id,
                               amount: amount,
                               date: DateTime.now(),
-                              method: method,
+                              // If direct pay, force Cash method internally since banks are hidden
+                              method: directPayToSupplier ? PaymentMethod.cash : method,
                               chequeNumber: chequeNoCtrl.text.trim(),
                               bankName: bankNameCtrl.text.trim(),
                               transactionId: txnCtrl.text.trim(),
-                              chequeDate: method == PaymentMethod.cheque
+                              chequeDate: (!directPayToSupplier && method == PaymentMethod.cheque)
                                   ? chequeDate
                                   : null,
-                              bankId: method != PaymentMethod.cash
+                              bankId: (!directPayToSupplier && method != PaymentMethod.cash)
                                   ? selectedBankId
                                   : 'default_bank',
+                              supplierId: directPayToSupplier
+                                  ? (selectedSupplierId ?? '')
+                                  : '',
+                              supplierName: directPayToSupplier
+                                  ? (selectedSupplierName ?? '')
+                                  : '',
+                              supplierPaymentAmount:
+                                  directPayToSupplier ? supplierPayAmount : 0.0,
+                              supplierNote: directPayToSupplier 
+                                  ? supplierNoteCtrl.text.trim() 
+                                  : '',
                             );
 
                             await data.addInstallmentPayment(
@@ -401,9 +618,12 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                             if (mounted) {
                               Navigator.pop(ctx);
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content:
-                                      Text('Payment added successfully'),
+                                SnackBar(
+                                  content: Text(
+                                    directPayToSupplier
+                                        ? 'Payment saved. Rs. ${supplierPayAmount.toStringAsFixed(2)} to supplier.'
+                                        : 'Payment added successfully',
+                                  ),
                                   backgroundColor: AppColors.cashGreen,
                                 ),
                               );
@@ -448,12 +668,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     final currency = NumberFormat('#,##0.00');
     final dateFmt = DateFormat('dd MMM yyyy');
 
-    final totalPurchases =
-        sales.fold(0.0, (sum, s) => sum + s.totalAmount);
+    final totalPurchases = sales.fold(0.0, (sum, s) => sum + s.totalAmount);
     final totalPaid = sales.fold(
-        0.0,
-        (sum, s) =>
-            sum + s.payments.fold(0.0, (ps, p) => ps + p.amount));
+        0.0, (sum, s) => sum + s.payments.fold(0.0, (ps, p) => ps + p.amount));
     final outstanding = totalPurchases - totalPaid;
 
     pw.MemoryImage? logoImage;
@@ -490,8 +707,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                   style: const pw.TextStyle(fontSize: 9)),
               pw.Text(settings.addressLine3,
                   style: const pw.TextStyle(fontSize: 9)),
-              pw.Text(settings.phone,
-                  style: const pw.TextStyle(fontSize: 9)),
+              pw.Text(settings.phone, style: const pw.TextStyle(fontSize: 9)),
             ]),
           ),
           pw.SizedBox(height: 16),
@@ -505,8 +721,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
             child: pw.Text(
               'CUSTOMER ACCOUNT STATEMENT',
               textAlign: pw.TextAlign.center,
-              style: pw.TextStyle(
-                  fontSize: 14, fontWeight: pw.FontWeight.bold),
+              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
             ),
           ),
           pw.SizedBox(height: 16),
@@ -516,8 +731,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
               pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Text('Customer:',
-                      style: const pw.TextStyle(fontSize: 10)),
+                  pw.Text('Customer:', style: const pw.TextStyle(fontSize: 10)),
                   pw.Text(widget.customerName,
                       style: pw.TextStyle(
                           fontSize: 13, fontWeight: pw.FontWeight.bold)),
@@ -532,8 +746,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
             border: pw.TableBorder.all(width: 1),
             children: [
               pw.TableRow(
-                decoration: pw.BoxDecoration(
-                    color: PdfColor.fromHex('#DCE6F1')),
+                decoration: pw.BoxDecoration(color: PdfColor.fromHex('#DCE6F1')),
                 children: [
                   _pdfCell('Total Purchases', bold: true),
                   _pdfCell('Total Paid', bold: true),
@@ -543,15 +756,13 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
               pw.TableRow(children: [
                 _pdfCell('Rs. ${currency.format(totalPurchases)}'),
                 _pdfCell('Rs. ${currency.format(totalPaid)}'),
-                _pdfCell('Rs. ${currency.format(outstanding)}',
-                    bold: true),
+                _pdfCell('Rs. ${currency.format(outstanding)}', bold: true),
               ]),
             ],
           ),
           pw.SizedBox(height: 24),
           pw.Text('INVOICES / SALES HISTORY',
-              style: pw.TextStyle(
-                  fontSize: 12, fontWeight: pw.FontWeight.bold)),
+              style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
           pw.SizedBox(height: 6),
           if (sales.isEmpty)
             pw.Text('No invoices found.',
@@ -569,8 +780,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
               },
               children: [
                 pw.TableRow(
-                  decoration: pw.BoxDecoration(
-                      color: PdfColor.fromHex('#DCE6F1')),
+                  decoration: pw.BoxDecoration(color: PdfColor.fromHex('#DCE6F1')),
                   children: [
                     _pdfCell('Invoice #', bold: true, size: 9),
                     _pdfCell('Date', bold: true, size: 9),
@@ -581,8 +791,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                   ],
                 ),
                 ...sales.map((s) {
-                  final paid =
-                      s.payments.fold(0.0, (a, p) => a + p.amount);
+                  final paid = s.payments.fold(0.0, (a, p) => a + p.amount);
                   final dueAmt = s.totalAmount - paid;
                   final status = dueAmt <= 0
                       ? 'Paid'
@@ -601,8 +810,8 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
           if (sales.any((s) => s.payments.isNotEmpty)) ...[
             pw.SizedBox(height: 20),
             pw.Text('PAYMENT DETAILS',
-                style: pw.TextStyle(
-                    fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                style:
+                    pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
             pw.SizedBox(height: 6),
             pw.Table(
               border: pw.TableBorder.all(width: 0.5),
@@ -615,8 +824,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
               },
               children: [
                 pw.TableRow(
-                  decoration: pw.BoxDecoration(
-                      color: PdfColor.fromHex('#DCE6F1')),
+                  decoration: pw.BoxDecoration(color: PdfColor.fromHex('#DCE6F1')),
                   children: [
                     _pdfCell('Invoice #', bold: true, size: 9),
                     _pdfCell('Date', bold: true, size: 9),
@@ -628,9 +836,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                 ...sales.expand((s) => s.payments.map((p) {
                       final ref = p.method.name == 'cheque'
                           ? '${p.chequeNumber} (${p.bankName})'
-                          : (p.transactionId.isNotEmpty
-                              ? p.transactionId
-                              : '-');
+                          : (p.transactionId.isNotEmpty ? p.transactionId : '-');
                       return pw.TableRow(children: [
                         _pdfCell(s.invoiceNumber, size: 9),
                         _pdfCell(dateFmt.format(p.date), size: 9),
@@ -644,8 +850,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
           ],
           pw.SizedBox(height: 20),
           pw.Text('QUOTATIONS',
-              style: pw.TextStyle(
-                  fontSize: 12, fontWeight: pw.FontWeight.bold)),
+              style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
           pw.SizedBox(height: 6),
           if (quotations.isEmpty)
             pw.Text('No quotations found.',
@@ -661,8 +866,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
               },
               children: [
                 pw.TableRow(
-                  decoration: pw.BoxDecoration(
-                      color: PdfColor.fromHex('#DCE6F1')),
+                  decoration: pw.BoxDecoration(color: PdfColor.fromHex('#DCE6F1')),
                   children: [
                     _pdfCell('Quotation #', bold: true, size: 9),
                     _pdfCell('Date', bold: true, size: 9),
@@ -683,8 +887,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
           pw.SizedBox(height: 4),
           pw.Text(
             'This is a computer-generated statement. For queries contact ${settings.phone}',
-            style:
-                const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
             textAlign: pw.TextAlign.center,
           ),
         ],
@@ -693,8 +896,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
 
     await Printing.layoutPdf(
       onLayout: (format) async => pdf.save(),
-      name:
-          'Customer_Statement_${widget.customerName.replaceAll(' ', '_')}',
+      name: 'Customer_Statement_${widget.customerName.replaceAll(' ', '_')}',
     );
   }
 
@@ -717,12 +919,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
     final sales = _customerSales;
     final quotations = _customerQuotations;
 
-    final totalPurchases =
-        sales.fold(0.0, (sum1, s) => sum1 + s.totalAmount);
+    final totalPurchases = sales.fold(0.0, (sum1, s) => sum1 + s.totalAmount);
     final totalPaid = sales.fold(
-        0.0,
-        (sum2, s) =>
-            sum2 + s.payments.fold(0.0, (ps, p) => ps + p.amount));
+        0.0, (sum2, s) => sum2 + s.payments.fold(0.0, (ps, p) => ps + p.amount));
     final outstanding = totalPurchases - totalPaid;
 
     return Scaffold(
@@ -762,13 +961,10 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                _summaryCard(
-                    'Total Purchases',
-                    'Rs. ${totalPurchases.toStringAsFixed(2)}',
-                    AppColors.bankBlue),
+                _summaryCard('Total Purchases',
+                    'Rs. ${totalPurchases.toStringAsFixed(2)}', AppColors.bankBlue),
                 const SizedBox(width: 16),
-                _summaryCard('Total Paid',
-                    'Rs. ${totalPaid.toStringAsFixed(2)}',
+                _summaryCard('Total Paid', 'Rs. ${totalPaid.toStringAsFixed(2)}',
                     AppColors.cashGreen),
                 const SizedBox(width: 16),
                 _summaryCard(
@@ -787,23 +983,21 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                 sales.isEmpty
                     ? const Center(
                         child: Text('No invoices',
-                            style:
-                                TextStyle(color: AppColors.textSecondary)))
+                            style: TextStyle(color: AppColors.textSecondary)))
                     : ListView.builder(
                         padding: const EdgeInsets.all(16),
                         itemCount: sales.length,
                         itemBuilder: (context, index) {
                           final sale = sales[index];
-                          final paid = sale.payments
-                              .fold(0.0, (s, p) => s + p.amount);
+                          final paid =
+                              sale.payments.fold(0.0, (s, p) => s + p.amount);
                           final due = sale.totalAmount - paid;
                           return Card(
                             color: AppColors.cardBg,
                             elevation: 1,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
-                              side: const BorderSide(
-                                  color: AppColors.border),
+                              side: const BorderSide(color: AppColors.border),
                             ),
                             child: ListTile(
                               title: Text(sale.invoiceNumber,
@@ -827,8 +1021,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                                   if (due > 0)
                                     IconButton(
                                       tooltip: 'Add Payment',
-                                      icon: const Icon(
-                                          Icons.payment,
+                                      icon: const Icon(Icons.payment,
                                           color: AppColors.cashGreen),
                                       onPressed: () =>
                                           _showAddPaymentDialog(sale),
@@ -842,8 +1035,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                                         context,
                                         MaterialPageRoute(
                                           builder: (_) =>
-                                              InvoiceFormatScreen(
-                                                  invoice: sale),
+                                              InvoiceFormatScreen(invoice: sale),
                                         ),
                                       );
                                     },
@@ -854,8 +1046,8 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (_) => InvoiceFormatScreen(
-                                        invoice: sale),
+                                    builder: (_) =>
+                                        InvoiceFormatScreen(invoice: sale),
                                   ),
                                 );
                               },
@@ -866,8 +1058,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                 quotations.isEmpty
                     ? const Center(
                         child: Text('No quotations',
-                            style:
-                                TextStyle(color: AppColors.textSecondary)))
+                            style: TextStyle(color: AppColors.textSecondary)))
                     : ListView.builder(
                         padding: const EdgeInsets.all(16),
                         itemCount: quotations.length,
@@ -878,8 +1069,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                             elevation: 1,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
-                              side: const BorderSide(
-                                  color: AppColors.border),
+                              side: const BorderSide(color: AppColors.border),
                             ),
                             child: ListTile(
                               title: Text(q.id,
@@ -900,11 +1090,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (_) =>
-                                        QuotationPreviewScreen(
+                                    builder: (_) => QuotationPreviewScreen(
                                       quotation: q,
-                                      onBack: () =>
-                                          Navigator.pop(context),
+                                      onBack: () => Navigator.pop(context),
                                     ),
                                   ),
                                 );
@@ -928,7 +1116,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen>
         decoration: BoxDecoration(
           color: AppColors.cardBg,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.3)),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
           boxShadow: [
             BoxShadow(
               color: AppColors.headerBg.withOpacity(0.04),

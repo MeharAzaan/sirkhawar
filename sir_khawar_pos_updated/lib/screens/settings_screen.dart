@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:sir_khawar_pos_updated/data/app_data.dart';
 import 'package:sir_khawar_pos_updated/constants/app_colors.dart';
 import 'package:sir_khawar_pos_updated/models/quotation.dart';
+import 'package:sir_khawar_pos_updated/models/app_user.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -115,6 +116,437 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  // ============ USER ACCESS MANAGEMENT (ADDED) ============
+
+  Future<void> _showAddUserDialog() async {
+    final nameCtrl = TextEditingController();
+    final idCtrl = TextEditingController();
+    String role = 'employee';
+    bool saving = false;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Add New User'),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Display Name',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: idCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'User ID (unique, no spaces)',
+                    border: OutlineInputBorder(),
+                    hintText: 'e.g. ali, ahmed, staff1',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: role,
+                  decoration: const InputDecoration(
+                    labelText: 'Role',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'employee', child: Text('Employee')),
+                    DropdownMenuItem(value: 'admin', child: Text('Admin')),
+                  ],
+                  onChanged: (v) => setD(() => role = v ?? 'employee'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final id = idCtrl.text.trim();
+                      final name = nameCtrl.text.trim();
+                      if (id.isEmpty || name.isEmpty) return;
+                      if (data.users.any((u) => u.id == id)) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('User ID already exists'),
+                            backgroundColor: AppColors.expenseRed,
+                          ),
+                        );
+                        return;
+                      }
+                      setD(() => saving = true);
+                      try {
+                        await data.addUser(AppUser(
+                          id: id,
+                          name: name,
+                          role: role,
+                          allowedScreens:
+                              role == 'admin' ? [] : ['dashboard'],
+                        ));
+                        if (mounted) Navigator.pop(ctx);
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content:
+                                  Text('Please check your internet connection'),
+                              backgroundColor: AppColors.expenseRed,
+                            ),
+                          );
+                        }
+                      } finally {
+                        setD(() => saving = false);
+                      }
+                    },
+              child: saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Text('Add User'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showPermissionsDialog(AppUser user) async {
+    final selected = Set<String>.from(user.allowedScreens);
+    bool saving = false;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: Text('Permissions: ${user.name}'),
+          content: SizedBox(
+            width: 450,
+            height: 500,
+            child: user.isAdmin
+                ? const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.admin_panel_settings,
+                            size: 60, color: Colors.amber),
+                        SizedBox(height: 12),
+                        Text(
+                          'Admin has full access to all screens.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  )
+                : Column(
+                    children: [
+                      const Text(
+                        'Tick the screens this user can access:',
+                        style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: ListView(
+                          children: AppData.allScreenKeys.map((screen) {
+                            final key = screen['key']!;
+                            final label = screen['label']!;
+                            final checked = selected.contains(key);
+                            return CheckboxListTile(
+                              title: Text(label),
+                              value: checked,
+                              dense: true,
+                              controlAffinity: ListTileControlAffinity.leading,
+                              onChanged: (v) {
+                                setD(() {
+                                  if (v == true) {
+                                    selected.add(key);
+                                  } else {
+                                    selected.remove(key);
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(ctx),
+              child: const Text('Close'),
+            ),
+            if (!user.isAdmin)
+              ElevatedButton(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        setD(() => saving = true);
+                        try {
+                          await data.updateUserPermissions(
+                              user.id, selected.toList());
+                          if (mounted) {
+                            Navigator.pop(ctx);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Permissions updated'),
+                                backgroundColor: AppColors.cashGreen,
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                    'Please check your internet connection'),
+                                backgroundColor: AppColors.expenseRed,
+                              ),
+                            );
+                          }
+                        } finally {
+                          setD(() => saving = false);
+                        }
+                      },
+                child: saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text('Save Permissions'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteUser(AppUser user) async {
+    if (user.id == data.currentUser?.id) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You cannot delete yourself'),
+          backgroundColor: AppColors.expenseRed,
+        ),
+      );
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete User'),
+        content: Text('Remove "${user.name}" from this system?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.expenseRed),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      try {
+        await data.deleteUser(user.id);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please check your internet connection'),
+              backgroundColor: AppColors.expenseRed,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Widget _buildUserAccessSection() {
+    final isAdmin = data.currentUser?.isAdmin ?? false;
+    if (!isAdmin) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 32),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'User Access Management',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.person_add),
+              label: const Text('Add User'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.bankBlue,
+                foregroundColor: AppColors.cardBg,
+              ),
+              onPressed: _showAddUserDialog,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Add users and control which screens they can see. Changes sync in real time.',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.cardBg,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: data.users.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Center(child: Text('No users yet')),
+                  )
+                : Column(
+                    children: data.users.map((user) {
+                      final isMe = user.id == data.currentUser?.id;
+                      return Container(
+                        decoration: const BoxDecoration(
+                          border: Border(
+                            bottom:
+                                BorderSide(color: AppColors.border, width: 0.5),
+                          ),
+                        ),
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: user.isAdmin
+                                ? Colors.amber.withOpacity(0.2)
+                                : AppColors.bankBlue.withOpacity(0.15),
+                            child: Icon(
+                              user.isAdmin
+                                  ? Icons.admin_panel_settings
+                                  : Icons.person,
+                              color: user.isAdmin
+                                  ? Colors.amber.shade800
+                                  : AppColors.bankBlue,
+                            ),
+                          ),
+                          title: Row(
+                            children: [
+                              Text(
+                                user.name,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: user.isAdmin
+                                      ? Colors.amber.withOpacity(0.2)
+                                      : Colors.grey.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  user.isAdmin ? 'ADMIN' : 'EMPLOYEE',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: user.isAdmin
+                                        ? Colors.amber.shade800
+                                        : Colors.grey.shade700,
+                                  ),
+                                ),
+                              ),
+                              if (isMe) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.cashGreen.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'YOU',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.cashGreen,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          subtitle: Text(
+                            user.isAdmin
+                                ? 'Full access to all screens'
+                                : '${user.allowedScreens.length} screen(s) allowed',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.security,
+                                    color: AppColors.bankBlue),
+                                tooltip: 'Manage Permissions',
+                                onPressed: () => _showPermissionsDialog(user),
+                              ),
+                              IconButton(
+                                icon: Icon(
+                                  Icons.delete,
+                                  color: isMe
+                                      ? Colors.grey
+                                      : AppColors.expenseRed,
+                                ),
+                                tooltip: isMe
+                                    ? 'Cannot delete yourself'
+                                    : 'Delete User',
+                                onPressed:
+                                    isMe ? null : () => _confirmDeleteUser(user),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============ END USER ACCESS MANAGEMENT ============
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -123,6 +555,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('Settings'),
         backgroundColor: AppColors.headerBg,
         foregroundColor: AppColors.cardBg,
+        actions: [
+          if (data.currentUser != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Row(
+                children: [
+                  const Icon(Icons.person, size: 18),
+                  const SizedBox(width: 6),
+                  Text(data.currentUser!.name,
+                      style: const TextStyle(fontSize: 13)),
+                  const SizedBox(width: 12),
+                  TextButton.icon(
+                    icon: const Icon(Icons.logout,
+                        color: Colors.white, size: 18),
+                    label: const Text('Logout',
+                        style: TextStyle(color: Colors.white)),
+                    onPressed: () => data.logout(),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
@@ -361,6 +815,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
               ),
+
+              // ── User Access Management (Admin only) ──
+              _buildUserAccessSection(),
             ],
           ),
         ),

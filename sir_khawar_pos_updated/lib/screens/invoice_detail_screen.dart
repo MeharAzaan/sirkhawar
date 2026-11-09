@@ -61,6 +61,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
 
     final amountCtrl =
         TextEditingController(text: due.toStringAsFixed(2));
+    final supplierAmountCtrl = TextEditingController();
     PaymentMethod selectedMethod = PaymentMethod.cash;
     final chequeNoCtrl = TextEditingController();
     final bankNameCtrl = TextEditingController();
@@ -68,180 +69,447 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     DateTime chequeDate =
         DateTime.now().add(const Duration(days: 30));
 
+    bool paySupplierDirect = false;
+    String? selectedSupplierId;
+    String selectedSupplierName = '';
+
+    final suppliers = List.of(data.vendors)
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
     final result = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: AppColors.cardBg,
-          title: const Text('Record Payment',
-              style: TextStyle(color: AppColors.textPrimary)),
-          content: SizedBox(
-            width: 420,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('Balance Due: Rs. ${due.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: AppColors.expenseRed)),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: amountCtrl,
-                    style: const TextStyle(color: AppColors.textPrimary),
-                    decoration: const InputDecoration(
-                        labelText: 'Amount *',
-                        labelStyle: TextStyle(color: AppColors.textSecondary),
-                        border: OutlineInputBorder(),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: AppColors.border),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(
-                              color: AppColors.sidebarActive, width: 1.5),
-                        ),
-                        prefixText: 'Rs. ',
-                        prefixStyle: TextStyle(color: AppColors.textPrimary)),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(
-                            decimal: true),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<PaymentMethod>(
-                    dropdownColor: AppColors.cardBg,
-                    value: selectedMethod,
-                    style: const TextStyle(color: AppColors.textPrimary),
-                    decoration: const InputDecoration(
-                        labelText: 'Payment Method',
-                        labelStyle: TextStyle(color: AppColors.textSecondary),
-                        border: OutlineInputBorder(),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: AppColors.border),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(
-                              color: AppColors.sidebarActive, width: 1.5),
-                        )),
-                    items: PaymentMethod.values
-                        .map((m) => DropdownMenuItem(
-                            value: m,
-                            child: Text(m.name.toUpperCase(),
-                                style: const TextStyle(
-                                    color: AppColors.textPrimary))))
-                        .toList(),
-                    onChanged: (v) {
-                      if (v != null) {
-                        setDialogState(() => selectedMethod = v);
-                      }
-                    },
-                  ),
-                  if (selectedMethod == PaymentMethod.cheque) ...[
-                    const SizedBox(height: 12),
+        builder: (ctx, setDialogState) {
+          final paymentAmount =
+              double.tryParse(amountCtrl.text.trim()) ?? 0.0;
+          final supplierAmount = paySupplierDirect
+              ? (double.tryParse(supplierAmountCtrl.text.trim()) ?? 0.0)
+              : 0.0;
+          final netToBusiness = paymentAmount - supplierAmount;
+
+          return AlertDialog(
+            backgroundColor: AppColors.cardBg,
+            title: const Text('Record Payment',
+                style: TextStyle(color: AppColors.textPrimary)),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Balance Due: Rs. ${due.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: AppColors.expenseRed)),
+                    const SizedBox(height: 16),
                     TextField(
-                      controller: chequeNoCtrl,
-                      style: const TextStyle(color: AppColors.textPrimary),
+                      controller: amountCtrl,
+                      style:
+                          const TextStyle(color: AppColors.textPrimary),
                       decoration: const InputDecoration(
-                          labelText: 'Cheque Number',
-                          labelStyle: TextStyle(color: AppColors.textSecondary),
+                          labelText: 'Amount *',
+                          labelStyle:
+                              TextStyle(color: AppColors.textSecondary),
                           border: OutlineInputBorder(),
                           enabledBorder: OutlineInputBorder(
-                            borderSide: BorderSide(color: AppColors.border),
+                            borderSide:
+                                BorderSide(color: AppColors.border),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderSide: BorderSide(
-                                color: AppColors.sidebarActive, width: 1.5),
-                          )),
+                                color: AppColors.sidebarActive,
+                                width: 1.5),
+                          ),
+                          prefixText: 'Rs. ',
+                          prefixStyle:
+                              TextStyle(color: AppColors.textPrimary)),
+                      keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true),
+                      onChanged: (_) => setDialogState(() {}),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
-                      controller: bankNameCtrl,
-                      style: const TextStyle(color: AppColors.textPrimary),
+                    DropdownButtonFormField<PaymentMethod>(
+                      dropdownColor: AppColors.cardBg,
+                      value: selectedMethod,
+                      isExpanded: true,
+                      style:
+                          const TextStyle(color: AppColors.textPrimary),
                       decoration: const InputDecoration(
-                          labelText: 'Bank Name',
-                          labelStyle: TextStyle(color: AppColors.textSecondary),
+                          labelText: 'Payment Method',
+                          labelStyle:
+                              TextStyle(color: AppColors.textSecondary),
                           border: OutlineInputBorder(),
                           enabledBorder: OutlineInputBorder(
-                            borderSide: BorderSide(color: AppColors.border),
+                            borderSide:
+                                BorderSide(color: AppColors.border),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderSide: BorderSide(
-                                color: AppColors.sidebarActive, width: 1.5),
+                                color: AppColors.sidebarActive,
+                                width: 1.5),
                           )),
-                    ),
-                    const SizedBox(height: 12),
-                    InkWell(
-                      onTap: () async {
-                        final picked = await showDatePicker(
-                          context: ctx,
-                          initialDate: chequeDate,
-                          firstDate: DateTime.now(),
-                          lastDate: DateTime.now()
-                              .add(const Duration(days: 365)),
-                        );
-                        if (picked != null) {
-                          setDialogState(() => chequeDate = picked);
+                      items: PaymentMethod.values
+                          .map((m) => DropdownMenuItem(
+                              value: m,
+                              child: Text(m.name.toUpperCase(),
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      color: AppColors.textPrimary))))
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) {
+                          setDialogState(() => selectedMethod = v);
                         }
                       },
-                      child: InputDecorator(
+                    ),
+                    if (selectedMethod == PaymentMethod.cheque) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: chequeNoCtrl,
+                        style: const TextStyle(
+                            color: AppColors.textPrimary),
                         decoration: const InputDecoration(
-                            labelText: 'Cheque Date',
-                            labelStyle: TextStyle(color: AppColors.textSecondary),
+                            labelText: 'Cheque Number',
+                            labelStyle: TextStyle(
+                                color: AppColors.textSecondary),
                             border: OutlineInputBorder(),
                             enabledBorder: OutlineInputBorder(
-                              borderSide: BorderSide(color: AppColors.border),
+                              borderSide:
+                                  BorderSide(color: AppColors.border),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderSide: BorderSide(
-                                  color: AppColors.sidebarActive, width: 1.5),
+                                  color: AppColors.sidebarActive,
+                                  width: 1.5),
                             )),
-                        child: Text(
-                            '${chequeDate.day}/${chequeDate.month}/${chequeDate.year}',
-                            style: const TextStyle(color: AppColors.textPrimary)),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: bankNameCtrl,
+                        style: const TextStyle(
+                            color: AppColors.textPrimary),
+                        decoration: const InputDecoration(
+                            labelText: 'Bank Name',
+                            labelStyle: TextStyle(
+                                color: AppColors.textSecondary),
+                            border: OutlineInputBorder(),
+                            enabledBorder: OutlineInputBorder(
+                              borderSide:
+                                  BorderSide(color: AppColors.border),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderSide: BorderSide(
+                                  color: AppColors.sidebarActive,
+                                  width: 1.5),
+                            )),
+                      ),
+                      const SizedBox(height: 12),
+                      InkWell(
+                        onTap: () async {
+                          final picked = await showDatePicker(
+                            context: ctx,
+                            initialDate: chequeDate,
+                            firstDate: DateTime.now(),
+                            lastDate: DateTime.now()
+                                .add(const Duration(days: 365)),
+                          );
+                          if (picked != null) {
+                            setDialogState(() => chequeDate = picked);
+                          }
+                        },
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                              labelText: 'Cheque Date',
+                              labelStyle: TextStyle(
+                                  color: AppColors.textSecondary),
+                              border: OutlineInputBorder(),
+                              enabledBorder: OutlineInputBorder(
+                                borderSide:
+                                    BorderSide(color: AppColors.border),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderSide: BorderSide(
+                                    color: AppColors.sidebarActive,
+                                    width: 1.5),
+                              )),
+                          child: Text(
+                              '${chequeDate.day}/${chequeDate.month}/${chequeDate.year}',
+                              style: const TextStyle(
+                                  color: AppColors.textPrimary)),
+                        ),
+                      ),
+                    ],
+                    if (selectedMethod == PaymentMethod.online) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: txnIdCtrl,
+                        style: const TextStyle(
+                            color: AppColors.textPrimary),
+                        decoration: const InputDecoration(
+                            labelText: 'Transaction ID',
+                            labelStyle: TextStyle(
+                                color: AppColors.textSecondary),
+                            border: OutlineInputBorder(),
+                            enabledBorder: OutlineInputBorder(
+                              borderSide:
+                                  BorderSide(color: AppColors.border),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderSide: BorderSide(
+                                  color: AppColors.sidebarActive,
+                                  width: 1.5),
+                            )),
+                      ),
+                    ],
+
+                    // ── Direct Payment to Supplier ──
+                    const SizedBox(height: 16),
+                    const Divider(color: AppColors.border),
+                    InkWell(
+                      onTap: () => setDialogState(() {
+                        paySupplierDirect = !paySupplierDirect;
+                        if (!paySupplierDirect) {
+                          selectedSupplierId = null;
+                          selectedSupplierName = '';
+                          supplierAmountCtrl.clear();
+                        }
+                      }),
+                      child: Row(
+                        children: [
+                          Checkbox(
+                            value: paySupplierDirect,
+                            activeColor: AppColors.sidebarActive,
+                            onChanged: (v) => setDialogState(() {
+                              paySupplierDirect = v ?? false;
+                              if (!paySupplierDirect) {
+                                selectedSupplierId = null;
+                                selectedSupplierName = '';
+                                supplierAmountCtrl.clear();
+                              }
+                            }),
+                          ),
+                          const Expanded(
+                            child: Text(
+                              'Direct Payment to Supplier',
+                              style: TextStyle(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                  if (selectedMethod == PaymentMethod.online) ...[
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: txnIdCtrl,
-                      style: const TextStyle(color: AppColors.textPrimary),
-                      decoration: const InputDecoration(
-                          labelText: 'Transaction ID',
-                          labelStyle: TextStyle(color: AppColors.textSecondary),
+                    if (paySupplierDirect) ...[
+                      const SizedBox(height: 8),
+                      if (suppliers.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 8),
+                          child: Text(
+                            'No vendors found. Add a vendor first.',
+                            style: TextStyle(
+                                color: AppColors.expenseRed, fontSize: 12),
+                          ),
+                        )
+                      else
+                        DropdownButtonFormField<String>(
+                          dropdownColor: AppColors.cardBg,
+                          value: selectedSupplierId,
+                          isExpanded: true,
+                          style: const TextStyle(
+                              color: AppColors.textPrimary),
+                          decoration: const InputDecoration(
+                            labelText: 'Supplier / Vendor *',
+                            labelStyle: TextStyle(
+                                color: AppColors.textSecondary),
+                            border: OutlineInputBorder(),
+                            enabledBorder: OutlineInputBorder(
+                              borderSide:
+                                  BorderSide(color: AppColors.border),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderSide: BorderSide(
+                                  color: AppColors.sidebarActive,
+                                  width: 1.5),
+                            ),
+                          ),
+                          items: suppliers
+                              .map((v) => DropdownMenuItem<String>(
+                                    value: v.id,
+                                    child: Text(
+                                      v.name,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          color: AppColors.textPrimary),
+                                    ),
+                                  ))
+                              .toList(),
+                          onChanged: (v) {
+                            if (v == null) return;
+                            final match =
+                                suppliers.where((e) => e.id == v).toList();
+                            setDialogState(() {
+                              selectedSupplierId = v;
+                              selectedSupplierName = match.isNotEmpty
+                                  ? match.first.name
+                                  : '';
+                            });
+                          },
+                        ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: supplierAmountCtrl,
+                        style: const TextStyle(
+                            color: AppColors.textPrimary),
+                        decoration: const InputDecoration(
+                          labelText: 'Amount to Supplier *',
+                          labelStyle: TextStyle(
+                              color: AppColors.textSecondary),
                           border: OutlineInputBorder(),
                           enabledBorder: OutlineInputBorder(
-                            borderSide: BorderSide(color: AppColors.border),
+                            borderSide:
+                                BorderSide(color: AppColors.border),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderSide: BorderSide(
-                                color: AppColors.sidebarActive, width: 1.5),
-                          )),
-                    ),
+                                color: AppColors.sidebarActive,
+                                width: 1.5),
+                          ),
+                          prefixText: 'Rs. ',
+                          prefixStyle:
+                              TextStyle(color: AppColors.textPrimary),
+                          helperText:
+                              'Portion of this payment sent directly to supplier',
+                          helperStyle: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11),
+                        ),
+                        keyboardType:
+                            const TextInputType.numberWithOptions(
+                                decimal: true),
+                        onChanged: (_) => setDialogState(() {}),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.background,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Customer invoice credit: Rs. ${paymentAmount.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 13),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'To supplier: Rs. ${supplierAmount.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                  color: AppColors.expenseRed,
+                                  fontSize: 13),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Net to business (cash/bank): Rs. ${netToBusiness.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                  color: AppColors.cashGreen,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel',
-                    style: TextStyle(color: AppColors.textSecondary))),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.cashGreen,
-                  foregroundColor: Colors.white),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Record'),
-            ),
-          ],
-        ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel',
+                      style:
+                          TextStyle(color: AppColors.textSecondary))),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.cashGreen,
+                    foregroundColor: Colors.white),
+                onPressed: () {
+                  final amount =
+                      double.tryParse(amountCtrl.text.trim());
+                  if (amount == null || amount <= 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Enter a valid payment amount'),
+                        backgroundColor: AppColors.expenseRed,
+                      ),
+                    );
+                    return;
+                  }
+                  if (amount > due) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Amount exceeds balance due'),
+                        backgroundColor: AppColors.expenseRed,
+                      ),
+                    );
+                    return;
+                  }
+                  if (paySupplierDirect) {
+                    if (selectedSupplierId == null ||
+                        selectedSupplierId!.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Select a supplier / vendor'),
+                          backgroundColor: AppColors.expenseRed,
+                        ),
+                      );
+                      return;
+                    }
+                    final sAmt = double.tryParse(
+                        supplierAmountCtrl.text.trim());
+                    if (sAmt == null || sAmt <= 0) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content:
+                              Text('Enter a valid supplier amount'),
+                          backgroundColor: AppColors.expenseRed,
+                        ),
+                      );
+                      return;
+                    }
+                    if (sAmt > amount) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                              'Supplier amount cannot exceed payment amount'),
+                          backgroundColor: AppColors.expenseRed,
+                        ),
+                      );
+                      return;
+                    }
+                  }
+                  Navigator.pop(ctx, true);
+                },
+                child: const Text('Record'),
+              ),
+            ],
+          );
+        },
       ),
     );
 
     if (result != true) return;
-    final amount = double.tryParse(amountCtrl.text);
+
+    final amount = double.tryParse(amountCtrl.text.trim());
     if (amount == null || amount <= 0) return;
     if (amount > due) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -252,12 +520,29 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       return;
     }
 
+    double supplierPayAmount = 0.0;
+    if (paySupplierDirect) {
+      supplierPayAmount =
+          double.tryParse(supplierAmountCtrl.text.trim()) ?? 0.0;
+      if (selectedSupplierId == null ||
+          supplierPayAmount <= 0 ||
+          supplierPayAmount > amount) {
+        return;
+      }
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child:
+            CircularProgressIndicator(color: AppColors.sidebarActive),
+      ),
+    );
+
     try {
       final payment = PaymentReceipt(
-        id: FirebaseFirestore.instance
-            .collection('payments')
-            .doc()
-            .id,
+        id: FirebaseFirestore.instance.collection('payments').doc().id,
         amount: amount,
         date: DateTime.now(),
         method: selectedMethod,
@@ -272,24 +557,41 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
             : '',
         chequeDate:
             selectedMethod == PaymentMethod.cheque ? chequeDate : null,
+        supplierId: paySupplierDirect ? (selectedSupplierId ?? '') : '',
+        supplierName: paySupplierDirect ? selectedSupplierName : '',
+        supplierPaymentAmount:
+            paySupplierDirect ? supplierPayAmount : 0.0,
       );
 
       await data.addInstallmentPayment(sale: sale, payment: payment);
 
       if (mounted) {
+        Navigator.of(context).pop(); // loader
+        final net = amount - supplierPayAmount;
+        final msg = paySupplierDirect && supplierPayAmount > 0
+            ? 'Payment of Rs. ${amount.toStringAsFixed(2)} recorded '
+                '(Rs. ${supplierPayAmount.toStringAsFixed(2)} → supplier, '
+                'Rs. ${net.toStringAsFixed(2)} → business)'
+            : 'Payment of Rs. ${amount.toStringAsFixed(2)} recorded';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(
-                  'Payment of Rs. ${amount.toStringAsFixed(2)} recorded'),
-              backgroundColor: AppColors.cashGreen),
+              content: Text(msg), backgroundColor: AppColors.cashGreen),
         );
       }
     } catch (e) {
       if (mounted) {
+        Navigator.of(context).pop(); // loader
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Error: $e'),
-              backgroundColor: AppColors.expenseRed),
+            content: Text(
+              e.toString().contains('SocketException') ||
+                      e.toString().toLowerCase().contains('network') ||
+                      e.toString().contains('Unavailable')
+                  ? 'Please check your internet connection'
+                  : 'Error: $e',
+            ),
+            backgroundColor: AppColors.expenseRed,
+          ),
         );
       }
     }
@@ -376,7 +678,8 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                         children: [
                           const Text('Bill To',
                               style: TextStyle(
-                                  color: AppColors.textSecondary, fontSize: 12)),
+                                  color: AppColors.textSecondary,
+                                  fontSize: 12)),
                           const SizedBox(height: 4),
                           Text(sale.customerName,
                               style: const TextStyle(
@@ -520,7 +823,8 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                       child: Column(
                         children: [
                           const Text('Amount Paid',
-                              style: TextStyle(color: AppColors.cashGreen)),
+                              style:
+                                  TextStyle(color: AppColors.cashGreen)),
                           Text('Rs. ${paid.toStringAsFixed(2)}',
                               style: const TextStyle(
                                   fontSize: 24,
@@ -583,7 +887,8 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                       child: Center(
                           child: Text('No payments recorded yet',
                               style: TextStyle(
-                                  color: AppColors.textSecondary, fontSize: 16))),
+                                  color: AppColors.textSecondary,
+                                  fontSize: 16))),
                     ),
                   )
                 : Container(
@@ -623,6 +928,11 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                                     color: AppColors.textSecondary,
                                     fontWeight: FontWeight.bold))),
                         DataColumn(
+                            label: Text('Supplier',
+                                style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontWeight: FontWeight.bold))),
+                        DataColumn(
                             label: Text('Amount',
                                 style: TextStyle(
                                     color: AppColors.textSecondary,
@@ -630,6 +940,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                             numeric: true),
                       ],
                       rows: sale.payments.map((p) {
+                        final hasSupplier = p.hasSupplierDirectPayment;
                         return DataRow(cells: [
                           DataCell(Text(
                               '${p.date.day}/${p.date.month}/${p.date.year}',
@@ -642,8 +953,10 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                               color: p.method == PaymentMethod.cash
                                   ? AppColors.cashGreen.withOpacity(0.12)
                                   : p.method == PaymentMethod.cheque
-                                      ? AppColors.pendingOrange.withOpacity(0.12)
-                                      : AppColors.bankBlue.withOpacity(0.12),
+                                      ? AppColors.pendingOrange
+                                          .withValues(alpha: 0.12)
+                                      : AppColors.bankBlue
+                                          .withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(p.method.name.toUpperCase(),
@@ -652,7 +965,8 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                                     fontWeight: FontWeight.bold,
                                     color: p.method == PaymentMethod.cash
                                         ? AppColors.cashGreen
-                                        : p.method == PaymentMethod.cheque
+                                        : p.method ==
+                                                PaymentMethod.cheque
                                             ? AppColors.pendingOrange
                                             : AppColors.bankBlue)),
                           )),
@@ -665,6 +979,33 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                           DataCell(Text(p.transactionId,
                               style: const TextStyle(
                                   color: AppColors.textPrimary))),
+                          DataCell(
+                            hasSupplier
+                                ? Column(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.center,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(p.supplierName,
+                                          style: const TextStyle(
+                                              color:
+                                                  AppColors.textPrimary,
+                                              fontSize: 12)),
+                                      Text(
+                                        'Rs. ${p.supplierPaymentAmount.toStringAsFixed(2)}',
+                                        style: const TextStyle(
+                                            color: AppColors.expenseRed,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  )
+                                : const Text('—',
+                                    style: TextStyle(
+                                        color:
+                                            AppColors.textSecondary)),
+                          ),
                           DataCell(Text(
                               'Rs. ${p.amount.toStringAsFixed(2)}',
                               style: const TextStyle(
@@ -680,8 +1021,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     );
   }
 
-  Widget _totalRow(String label, double amount,
-      {bool bold = false}) {
+  Widget _totalRow(String label, double amount, {bool bold = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
