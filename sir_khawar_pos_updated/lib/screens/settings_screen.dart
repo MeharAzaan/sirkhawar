@@ -116,13 +116,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // ============ USER ACCESS MANAGEMENT (ADDED) ============
+  // ============ USER ACCESS MANAGEMENT ============
 
   Future<void> _showAddUserDialog() async {
     final nameCtrl = TextEditingController();
     final idCtrl = TextEditingController();
+    final passwordCtrl = TextEditingController(text: '123456');
     String role = 'employee';
     bool saving = false;
+    bool obscure = true;
 
     await showDialog(
       context: context,
@@ -148,6 +150,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     labelText: 'User ID (unique, no spaces)',
                     border: OutlineInputBorder(),
                     hintText: 'e.g. ali, ahmed, staff1',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: passwordCtrl,
+                  obscureText: obscure,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                          obscure ? Icons.visibility_off : Icons.visibility),
+                      onPressed: () => setD(() => obscure = !obscure),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -177,7 +193,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   : () async {
                       final id = idCtrl.text.trim();
                       final name = nameCtrl.text.trim();
-                      if (id.isEmpty || name.isEmpty) return;
+                      final pwd = passwordCtrl.text.trim();
+                      if (id.isEmpty || name.isEmpty || pwd.isEmpty) return;
                       if (data.users.any((u) => u.id == id)) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
@@ -193,6 +210,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           id: id,
                           name: name,
                           role: role,
+                          password: pwd,
                           allowedScreens:
                               role == 'admin' ? [] : ['dashboard'],
                         ));
@@ -219,6 +237,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           strokeWidth: 2, color: Colors.white),
                     )
                   : const Text('Add User'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showResetPasswordDialog(AppUser user) async {
+    final passwordCtrl = TextEditingController(text: user.password);
+    bool obscure = false;
+    bool saving = false;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: Text('Reset Password for ${user.name}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: passwordCtrl,
+                obscureText: obscure,
+                decoration: InputDecoration(
+                  labelText: 'New Password',
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                        obscure ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => setD(() => obscure = !obscure),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final newPwd = passwordCtrl.text.trim();
+                      if (newPwd.isEmpty) return;
+                      setD(() => saving = true);
+                      try {
+                        await data.updateUserPassword(user.id, newPwd);
+                        if (mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Password updated successfully'),
+                              backgroundColor: AppColors.cashGreen,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                  'Please check your internet connection'),
+                              backgroundColor: AppColors.expenseRed,
+                            ),
+                          );
+                        }
+                      } finally {
+                        setD(() => saving = false);
+                      }
+                    },
+              child: saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Text('Update Password'),
             ),
           ],
         ),
@@ -415,7 +513,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         const SizedBox(height: 8),
         const Text(
-          'Add users and control which screens they can see. Changes sync in real time.',
+          'Add users, set passwords, and control which screens they can see. Changes sync in real time.',
           style: TextStyle(color: AppColors.textSecondary),
         ),
         const SizedBox(height: 16),
@@ -515,6 +613,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
+                                icon: const Icon(Icons.key, color: Colors.amber),
+                                tooltip: 'Reset Password',
+                                onPressed: () => _showResetPasswordDialog(user),
+                              ),
+                              IconButton(
                                 icon: const Icon(Icons.security,
                                     color: AppColors.bankBlue),
                                 tooltip: 'Manage Permissions',
@@ -565,6 +668,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(width: 6),
                   Text(data.currentUser!.name,
                       style: const TextStyle(fontSize: 13)),
+                  const SizedBox(width: 12),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.lock_reset, color: Colors.amber, size: 16),
+                    label: const Text('Change Password',
+                        style: TextStyle(color: Colors.white, fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.amber),
+                    ),
+                    onPressed: () => _showResetPasswordDialog(data.currentUser!),
+                  ),
                   const SizedBox(width: 12),
                   TextButton.icon(
                     icon: const Icon(Icons.logout,

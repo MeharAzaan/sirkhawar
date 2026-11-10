@@ -29,8 +29,77 @@ class _LoginScreenState extends State<LoginScreen> {
     if (mounted) setState(() {});
   }
 
-  void _selectUser(AppUser user) {
-    data.login(user);
+  Future<void> _promptPasswordAndLogin(AppUser user) async {
+    final passwordCtrl = TextEditingController();
+    bool obscure = true;
+    String? errorText;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: Text('Login as ${user.name}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Enter password for ${user.isAdmin ? "Admin" : "Employee"} profile:',
+                style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: passwordCtrl,
+                obscureText: obscure,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  border: const OutlineInputBorder(),
+                  errorText: errorText,
+                  suffixIcon: IconButton(
+                    icon: Icon(obscure ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => setD(() => obscure = !obscure),
+                  ),
+                ),
+                onSubmitted: (_) {
+                  _attemptLogin(ctx, user, passwordCtrl.text.trim(), (err) {
+                    setD(() => errorText = err);
+                  });
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.bankBlue,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                _attemptLogin(ctx, user, passwordCtrl.text.trim(), (err) {
+                  setD(() => errorText = err);
+                });
+              },
+              child: const Text('Login'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _attemptLogin(
+      BuildContext dialogContext, AppUser user, String enteredPassword, Function(String) onError) {
+    if (user.password == enteredPassword) {
+      Navigator.pop(dialogContext);
+      data.login(user);
+    } else {
+      onError('Incorrect password. Try again.');
+    }
   }
 
   @override
@@ -121,7 +190,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                           ),
-                          onPressed: () => _selectUser(user),
+                          onPressed: () => _promptPasswordAndLogin(user),
                         ),
                       ),
                     )),

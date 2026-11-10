@@ -241,7 +241,7 @@ class _CustomerChequesScreenState extends State<CustomerChequesScreen> {
                                 fontWeight: FontWeight.w500)),
                         const SizedBox(height: 6),
                         DropdownButtonFormField<String>(
-                          value: selectedCompany,
+                          initialValue: selectedCompany,
                           dropdownColor: AppColors.cardBg,
                           style: const TextStyle(color: AppColors.textPrimary),
                           decoration: InputDecoration(

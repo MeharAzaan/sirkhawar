@@ -15,8 +15,6 @@ import 'screens/invoices_screen.dart';
 import 'screens/vendors_screen.dart';
 import 'screens/purchases_screen.dart';
 import 'screens/reports_screen.dart';
-
-
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'data/app_data.dart';

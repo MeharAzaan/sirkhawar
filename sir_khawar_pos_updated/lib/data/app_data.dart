@@ -135,6 +135,10 @@ class AppData {
     await _db.collection('users').doc(userId).update({'name': name});
   }
 
+  Future<void> updateUserPassword(String userId, String newPassword) async {
+    await _db.collection('users').doc(userId).update({'password': newPassword});
+  }
+
   Future<void> deleteUser(String id) async {
     await _db.collection('users').doc(id).delete();
   }
@@ -145,6 +149,7 @@ class AppData {
       id: d['id']?.toString() ?? doc.id,
       name: d['name']?.toString() ?? '',
       role: d['role']?.toString() ?? 'employee',
+      password: d['password']?.toString() ?? 'admin123',
       allowedScreens: (d['allowedScreens'] as List<dynamic>? ?? [])
           .map((e) => e.toString())
           .toList(),
@@ -155,6 +160,7 @@ class AppData {
         'id': u.id,
         'name': u.name,
         'role': u.role,
+        'password': u.password,
         'allowedScreens': u.allowedScreens,
       };
   // ============ END ACCESS CONTROL ============
@@ -219,6 +225,7 @@ class AppData {
           supplierId: p.supplierId,
           supplierName: p.supplierName,
           supplierPaymentAmount: p.supplierPaymentAmount,
+          supplierNote: p.supplierNote,
         );
       }
       return p;
@@ -495,7 +502,7 @@ class AppData {
       _notify();
     }));
 
-    // Users listener (ADDED)
+    // Users listener
     _subs.add(_db.collection('users').snapshots().listen((snap) {
       users = snap.docs.map(_userFromDoc).toList();
       if (currentUser != null) {
@@ -633,13 +640,14 @@ class AppData {
         });
       }
 
-      // Seed admin user if no users exist (ADDED)
+      // Seed admin user if no users exist
       final usersSnap = await _db.collection('users').get();
       if (usersSnap.docs.isEmpty) {
         await _db.collection('users').doc('admin').set({
           'id': 'admin',
           'name': 'Admin',
           'role': 'admin',
+          'password': 'admin123',
           'allowedScreens': [],
         });
       }
@@ -788,6 +796,7 @@ class AppData {
           supplierName: pMap['supplierName']?.toString() ?? '',
           supplierPaymentAmount:
               (pMap['supplierPaymentAmount'] as num?)?.toDouble() ?? 0.0,
+          supplierNote: pMap['supplierNote']?.toString() ?? '',
         );
       }).toList(),
       dateOfPurchase:
@@ -831,6 +840,7 @@ class AppData {
                   'supplierId': p.supplierId,
                   'supplierName': p.supplierName,
                   'supplierPaymentAmount': p.supplierPaymentAmount,
+                  'supplierNote': p.supplierNote,
                 })
             .toList(),
         'dateOfPurchase': Timestamp.fromDate(s.dateOfPurchase),

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:sir_khawar_pos_updated/constants/app_colors.dart';
+import 'package:sir_khawar_pos_updated/data/app_data.dart';
 
 class Sidebar extends StatelessWidget {
   final int selectedIndex;
@@ -15,6 +17,83 @@ class Sidebar extends StatelessWidget {
     required this.onToggle,
     required this.allowedKeys,
   });
+
+  Future<void> _showClearCacheDialog(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear App Cache'),
+        content: const Text(
+          'This will clear memory & image cache and re-sync fresh data from the server. Do you want to proceed?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.bankBlue,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Clear Cache'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      try {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                ),
+                SizedBox(width: 12),
+                Text('Clearing app cache...'),
+              ],
+            ),
+            duration: Duration(seconds: 2),
+          ),
+        );
+
+        // Clear Flutter Image Cache from memory
+        PaintingBinding.instance.imageCache.clear();
+        PaintingBinding.instance.imageCache.clearLiveImages();
+
+        // Refresh & re-fetch data from Firestore
+        await AppData().initialize();
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('App cache cleared successfully'),
+              backgroundColor: AppColors.cashGreen,
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please check your internet connection'),
+              backgroundColor: AppColors.expenseRed,
+            ),
+          );
+        }
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -107,6 +186,76 @@ class Sidebar extends StatelessWidget {
               },
             ),
           ),
+
+          const Divider(color: Colors.white12, height: 1),
+
+          // ── Clear Cache Button ──
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            child: InkWell(
+              onTap: () => _showClearCacheDialog(context),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                child: Row(
+                  children: [
+                    Icon(Icons.cleaning_services_outlined, color: Colors.amber.shade300, size: 20),
+                    if (!isCollapsed) ...[
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Clear Cache',
+                          style: TextStyle(
+                            color: Colors.grey.shade300,
+                            fontWeight: FontWeight.w500,
+                            fontSize: 14,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // ── Logout Button ──
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            child: InkWell(
+              onTap: () {
+                AppData().logout();
+              },
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.logout, color: Colors.redAccent, size: 20),
+                    if (!isCollapsed) ...[
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'Logout',
+                          style: TextStyle(
+                            color: Colors.redAccent,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // ── Collapse Button ──
           InkWell(
             onTap: onToggle,
             child: Container(
