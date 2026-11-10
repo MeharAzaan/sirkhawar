@@ -19,6 +19,20 @@ class InvoiceDetailScreen extends StatefulWidget {
 class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   final AppData data = AppData();
 
+  // UI-only: shared const decorations (compiler-canonicalized).
+  // Values identical to the inline ones used before.
+  static const _border = OutlineInputBorder();
+  static const _enabledBorder = OutlineInputBorder(
+    borderSide: BorderSide(color: AppColors.border),
+  );
+  static const _focusedBorder = OutlineInputBorder(
+    borderSide: BorderSide(color: AppColors.sidebarActive, width: 1.5),
+  );
+  static const _labelStyle = TextStyle(color: AppColors.textSecondary);
+  static const _prefixStyle = TextStyle(color: AppColors.textPrimary);
+  static const _helperStyle =
+      TextStyle(color: AppColors.textSecondary, fontSize: 11);
+
   @override
   void initState() {
     super.initState();
@@ -110,21 +124,12 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                           const TextStyle(color: AppColors.textPrimary),
                       decoration: const InputDecoration(
                           labelText: 'Amount *',
-                          labelStyle:
-                              TextStyle(color: AppColors.textSecondary),
-                          border: OutlineInputBorder(),
-                          enabledBorder: OutlineInputBorder(
-                            borderSide:
-                                BorderSide(color: AppColors.border),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderSide: BorderSide(
-                                color: AppColors.sidebarActive,
-                                width: 1.5),
-                          ),
+                          labelStyle: _labelStyle,
+                          border: _border,
+                          enabledBorder: _enabledBorder,
+                          focusedBorder: _focusedBorder,
                           prefixText: 'Rs. ',
-                          prefixStyle:
-                              TextStyle(color: AppColors.textPrimary)),
+                          prefixStyle: _prefixStyle),
                       keyboardType: const TextInputType.numberWithOptions(
                           decimal: true),
                       onChanged: (_) => setDialogState(() {}),
@@ -138,18 +143,10 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                           const TextStyle(color: AppColors.textPrimary),
                       decoration: const InputDecoration(
                           labelText: 'Payment Method',
-                          labelStyle:
-                              TextStyle(color: AppColors.textSecondary),
-                          border: OutlineInputBorder(),
-                          enabledBorder: OutlineInputBorder(
-                            borderSide:
-                                BorderSide(color: AppColors.border),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderSide: BorderSide(
-                                color: AppColors.sidebarActive,
-                                width: 1.5),
-                          )),
+                          labelStyle: _labelStyle,
+                          border: _border,
+                          enabledBorder: _enabledBorder,
+                          focusedBorder: _focusedBorder),
                       items: PaymentMethod.values
                           .map((m) => DropdownMenuItem(
                               value: m,
@@ -172,18 +169,10 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                             color: AppColors.textPrimary),
                         decoration: const InputDecoration(
                             labelText: 'Cheque Number',
-                            labelStyle: TextStyle(
-                                color: AppColors.textSecondary),
-                            border: OutlineInputBorder(),
-                            enabledBorder: OutlineInputBorder(
-                              borderSide:
-                                  BorderSide(color: AppColors.border),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderSide: BorderSide(
-                                  color: AppColors.sidebarActive,
-                                  width: 1.5),
-                            )),
+                            labelStyle: _labelStyle,
+                            border: _border,
+                            enabledBorder: _enabledBorder,
+                            focusedBorder: _focusedBorder),
                       ),
                       const SizedBox(height: 12),
                       TextField(
@@ -192,18 +181,10 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                             color: AppColors.textPrimary),
                         decoration: const InputDecoration(
                             labelText: 'Bank Name',
-                            labelStyle: TextStyle(
-                                color: AppColors.textSecondary),
-                            border: OutlineInputBorder(),
-                            enabledBorder: OutlineInputBorder(
-                              borderSide:
-                                  BorderSide(color: AppColors.border),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderSide: BorderSide(
-                                  color: AppColors.sidebarActive,
-                                  width: 1.5),
-                            )),
+                            labelStyle: _labelStyle,
+                            border: _border,
+                            enabledBorder: _enabledBorder,
+                            focusedBorder: _focusedBorder),
                       ),
                       const SizedBox(height: 12),
                       InkWell(
@@ -222,18 +203,10 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                         child: InputDecorator(
                           decoration: const InputDecoration(
                               labelText: 'Cheque Date',
-                              labelStyle: TextStyle(
-                                  color: AppColors.textSecondary),
-                              border: OutlineInputBorder(),
-                              enabledBorder: OutlineInputBorder(
-                                borderSide:
-                                    BorderSide(color: AppColors.border),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderSide: BorderSide(
-                                    color: AppColors.sidebarActive,
-                                    width: 1.5),
-                              )),
+                              labelStyle: _labelStyle,
+                              border: _border,
+                              enabledBorder: _enabledBorder,
+                              focusedBorder: _focusedBorder),
                           child: Text(
                               '${chequeDate.day}/${chequeDate.month}/${chequeDate.year}',
                               style: const TextStyle(
@@ -249,18 +222,10 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                             color: AppColors.textPrimary),
                         decoration: const InputDecoration(
                             labelText: 'Transaction ID',
-                            labelStyle: TextStyle(
-                                color: AppColors.textSecondary),
-                            border: OutlineInputBorder(),
-                            enabledBorder: OutlineInputBorder(
-                              borderSide:
-                                  BorderSide(color: AppColors.border),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderSide: BorderSide(
-                                  color: AppColors.sidebarActive,
-                                  width: 1.5),
-                            )),
+                            labelStyle: _labelStyle,
+                            border: _border,
+                            enabledBorder: _enabledBorder,
+                            focusedBorder: _focusedBorder),
                       ),
                     ],
 
@@ -322,18 +287,10 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                               color: AppColors.textPrimary),
                           decoration: const InputDecoration(
                             labelText: 'Supplier / Vendor *',
-                            labelStyle: TextStyle(
-                                color: AppColors.textSecondary),
-                            border: OutlineInputBorder(),
-                            enabledBorder: OutlineInputBorder(
-                              borderSide:
-                                  BorderSide(color: AppColors.border),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderSide: BorderSide(
-                                  color: AppColors.sidebarActive,
-                                  width: 1.5),
-                            ),
+                            labelStyle: _labelStyle,
+                            border: _border,
+                            enabledBorder: _enabledBorder,
+                            focusedBorder: _focusedBorder,
                           ),
                           items: suppliers
                               .map((v) => DropdownMenuItem<String>(
@@ -365,26 +322,15 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                             color: AppColors.textPrimary),
                         decoration: const InputDecoration(
                           labelText: 'Amount to Supplier *',
-                          labelStyle: TextStyle(
-                              color: AppColors.textSecondary),
-                          border: OutlineInputBorder(),
-                          enabledBorder: OutlineInputBorder(
-                            borderSide:
-                                BorderSide(color: AppColors.border),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderSide: BorderSide(
-                                color: AppColors.sidebarActive,
-                                width: 1.5),
-                          ),
+                          labelStyle: _labelStyle,
+                          border: _border,
+                          enabledBorder: _enabledBorder,
+                          focusedBorder: _focusedBorder,
                           prefixText: 'Rs. ',
-                          prefixStyle:
-                              TextStyle(color: AppColors.textPrimary),
+                          prefixStyle: _prefixStyle,
                           helperText:
                               'Portion of this payment sent directly to supplier',
-                          helperStyle: TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 11),
+                          helperStyle: _helperStyle,
                         ),
                         keyboardType:
                             const TextInputType.numberWithOptions(

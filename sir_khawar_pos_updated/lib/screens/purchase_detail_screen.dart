@@ -20,6 +20,11 @@ class _PurchaseDetailScreenState extends State<PurchaseDetailScreen> {
   final AppData data = AppData();
   bool _returning = false;
 
+  // UI-only: reusable formatters (constructed once, reused).
+  // Same patterns as before — output is identical.
+  static final _dateFmtLong  = DateFormat('dd MMM yyyy, hh:mm a');
+  static final _dateFmtShort = DateFormat('dd MMM yyyy');
+
   @override
   void initState() {
     super.initState();
@@ -767,8 +772,7 @@ class _PurchaseDetailScreenState extends State<PurchaseDetailScreen> {
                                   color: AppColors.textPrimary)),
                           const SizedBox(height: 4),
                           Text(
-                              DateFormat('dd MMM yyyy, hh:mm a')
-                                  .format(p.purchaseDate),
+                              _dateFmtLong.format(p.purchaseDate),
                               style: const TextStyle(
                                   color: AppColors.textSecondary)),
                           const SizedBox(height: 8),
@@ -957,7 +961,7 @@ class _PurchaseDetailScreenState extends State<PurchaseDetailScreen> {
                                 size: 16, color: AppColors.textSecondary),
                             const SizedBox(width: 8),
                             Text(
-                              'Cheque Date: ${DateFormat('dd MMM yyyy').format(p.chequeDate!)}',
+                              'Cheque Date: ${_dateFmtShort.format(p.chequeDate!)}',
                               style: const TextStyle(
                                   color: AppColors.textPrimary, fontSize: 13),
                             ),
@@ -1000,7 +1004,7 @@ class _PurchaseDetailScreenState extends State<PurchaseDetailScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              'Return Date: ${DateFormat('dd MMM yyyy, hh:mm a').format(ret.returnDate)}',
+                              'Return Date: ${_dateFmtLong.format(ret.returnDate)}',
                               style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13,
