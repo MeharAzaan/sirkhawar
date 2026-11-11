@@ -16,6 +16,40 @@ import '../screens/quotation_preview_screen.dart';
 // IMPORT needed for the PDF statement
 import '../screens/account_ledger_screen.dart';
 
+/// Helper model for strongly-typed Master Report Bank Entries
+class _BankTxEntry {
+  final DateTime date;
+  final String bankName;
+  final String description;
+  final String type; // 'Deposit' or 'Withdrawal'
+  final double amount;
+
+  _BankTxEntry({
+    required this.date,
+    required this.bankName,
+    required this.description,
+    required this.type,
+    required this.amount,
+  });
+}
+
+/// Helper model for strongly-typed Master Report Customer Payments
+class _CustomerPaymentEntry {
+  final DateTime date;
+  final String customerName;
+  final String method;
+  final String reference;
+  final double amount;
+
+  _CustomerPaymentEntry({
+    required this.date,
+    required this.customerName,
+    required this.method,
+    required this.reference,
+    required this.amount,
+  });
+}
+
 class PdfService {
   
   // ==========================================
@@ -313,7 +347,7 @@ class PdfService {
   }
 
   // ==========================================
-  // EXISTING FUNCTION: Activity Report
+  // FUNCTION: Master Activity Report (Audit Trail)
   // ==========================================
   static Future<void> generateActivityReport({
     required DateTime start,
@@ -322,6 +356,7 @@ class PdfService {
     required List<SaleHistory> sales,
     required List<Quotation> quotations,
     required List<Purchase> purchases,
+    required List<PurchaseReturn> purchaseReturns,
     required List<Expense> expenses,
     required List<SalaryRecord> salaries,
     required List<String> activeCustomers,
@@ -331,6 +366,113 @@ class PdfService {
     final formatter = NumberFormat('#,##0.00', 'en_US');
     final qtyFormatter = NumberFormat('#,##0', 'en_US');
 
+    // 1. EXTRACT CUSTOMER PAYMENTS (RECEIPTS)
+    final List<_CustomerPaymentEntry> customerPayments = [];
+    for (var sale in sales) {
+      for (var p in sale.payments) {
+        if (p.date.isAfter(start.subtract(const Duration(seconds: 1))) &&
+            p.date.isBefore(end.add(const Duration(seconds: 1)))) {
+          final ref = p.chequeNumber.isNotEmpty
+              ? 'Cheque #${p.chequeNumber}'
+              : (p.transactionId.isNotEmpty
+                  ? 'Tx #${p.transactionId}'
+                  : 'Invoice #${sale.invoiceNumber.isNotEmpty ? sale.invoiceNumber : sale.id}');
+          customerPayments.add(_CustomerPaymentEntry(
+            date: p.date,
+            customerName: sale.customerName,
+            method: p.method.name.toUpperCase(),
+            reference: ref,
+            amount: p.amount,
+          ));
+        }
+      }
+    }
+    customerPayments.sort((a, b) => a.date.compareTo(b.date));
+
+    // 2. EXTRACT BANK TRANSACTIONS
+    final List<_BankTxEntry> bankEntries = [];
+    final appData = AppData();
+
+    // From Sales Payments
+    for (var sale in sales) {
+      for (var p in sale.payments) {
+        if ((p.method == PaymentMethod.online || p.method == PaymentMethod.cheque) &&
+            p.date.isAfter(start.subtract(const Duration(seconds: 1))) &&
+            p.date.isBefore(end.add(const Duration(seconds: 1)))) {
+          bankEntries.add(_BankTxEntry(
+            date: p.date,
+            bankName: appData.getBankName(p.bankId),
+            description: 'Sale Payment (${sale.customerName} - Inv #${sale.invoiceNumber})',
+            type: 'Deposit',
+            amount: p.netToBusiness,
+          ));
+        }
+      }
+    }
+
+    // From Expenses
+    for (var e in expenses) {
+      if (e.paidFrom != 'cash' &&
+          e.date.isAfter(start.subtract(const Duration(seconds: 1))) &&
+          e.date.isBefore(end.add(const Duration(seconds: 1)))) {
+        bankEntries.add(_BankTxEntry(
+          date: e.date,
+          bankName: appData.getBankName(e.paidFrom),
+          description: 'Expense (${e.category}: ${e.description})',
+          type: 'Withdrawal',
+          amount: e.amount,
+        ));
+      }
+    }
+
+    // From Salary Disbursements
+    for (var s in salaries) {
+      if (s.method == PaymentMethod.online &&
+          s.paymentDate.isAfter(start.subtract(const Duration(seconds: 1))) &&
+          s.paymentDate.isBefore(end.add(const Duration(seconds: 1)))) {
+        bankEntries.add(_BankTxEntry(
+          date: s.paymentDate,
+          bankName: appData.getBankName(s.bankId),
+          description: 'Salary Paid (${s.employeeName} - ${s.salaryMonth})',
+          type: 'Withdrawal',
+          amount: s.amount,
+        ));
+      }
+    }
+
+    // From Purchases
+    for (var pur in purchases) {
+      if ((pur.paymentMethod == 'bank' || pur.paymentMethod == 'cheque') &&
+          pur.purchaseDate.isAfter(start.subtract(const Duration(seconds: 1))) &&
+          pur.purchaseDate.isBefore(end.add(const Duration(seconds: 1)))) {
+        bankEntries.add(_BankTxEntry(
+          date: pur.purchaseDate,
+          bankName: appData.getBankName(pur.bankId ?? ''),
+          description: 'Purchase Payment (${pur.vendorName} - #${pur.id})',
+          type: 'Withdrawal',
+          amount: pur.totalAmount,
+        ));
+      }
+    }
+
+    // From Purchase Returns
+    for (var r in purchaseReturns) {
+      if ((r.paymentMethod == 'bank' || r.paymentMethod == 'cheque') &&
+          r.returnDate.isAfter(start.subtract(const Duration(seconds: 1))) &&
+          r.returnDate.isBefore(end.add(const Duration(seconds: 1)))) {
+        bankEntries.add(_BankTxEntry(
+          date: r.returnDate,
+          bankName: appData.getBankName(r.bankId ?? ''),
+          description: 'Purchase Return Refund (${r.vendorName} - #${r.id})',
+          type: 'Deposit',
+          amount: r.totalAmount,
+        ));
+      }
+    }
+
+    bankEntries.sort((a, b) => a.date.compareTo(b.date));
+
+    // Company Title & Logo
     final companyName = companyFilter == 'All'
         ? 'All Companies (Merged)'
         : AppCompanies.label(companyFilter);
@@ -360,8 +502,7 @@ class PdfService {
     final totalPurchases = purchases.fold(0.0, (sum, p) => sum + p.totalAmount);
     final totalExpenses = expenses.fold(0.0, (sum, e) => sum + e.amount);
     final totalSalaries = salaries.fold(0.0, (sum, s) => sum + s.amount);
-    final netProfitLoss =
-        totalSales - (totalPurchases + totalExpenses + totalSalaries);
+    final netProfitLoss = totalSales - (totalPurchases + totalExpenses + totalSalaries);
 
     pw.Widget sectionHeader(String title) {
       return pw.Container(
@@ -408,7 +549,7 @@ class PdfService {
             pw.SizedBox(height: 8),
             pw.Center(
               child: pw.Text(
-                'COMPREHENSIVE ACTIVITY REPORT',
+                'MASTER ACTIVITY REPORT (AUDIT TRAIL)',
                 style: pw.TextStyle(
                   fontSize: 16,
                   fontWeight: pw.FontWeight.bold,
@@ -425,6 +566,7 @@ class PdfService {
             pw.SizedBox(height: 12),
             pw.Divider(color: PdfColors.grey300),
 
+            // 1. FINANCIAL SUMMARY
             sectionHeader('1. Financial Summary'),
             pw.TableHelper.fromTextArray(
               border: null,
@@ -444,13 +586,14 @@ class PdfService {
               headers: ['Category', 'Records Count', 'Amount (Rs)'],
               data: [
                 ['Total Sales (Invoices)', '${sales.length}', formatter.format(totalSales)],
-                ['Total Purchases (Shared)', '${purchases.length}', formatter.format(totalPurchases)],
+                ['Total Purchases', '${purchases.length}', formatter.format(totalPurchases)],
                 ['Total Expenses', '${expenses.length}', formatter.format(totalExpenses)],
                 ['Total Salaries Disbursed', '${salaries.length}', formatter.format(totalSalaries)],
                 ['NET PROFIT / LOSS', '', formatter.format(netProfitLoss)],
               ],
             ),
 
+            // 2. ACTIVE CUSTOMERS
             sectionHeader('2. Active Customers (${activeCustomers.length})'),
             if (activeCustomers.isEmpty)
               pw.Text('No active customer transactions in this period.',
@@ -465,6 +608,7 @@ class PdfService {
                     .toList(),
               ),
 
+            // 3. SALES / INVOICES DETAILS
             if (sales.isNotEmpty) ...[
               sectionHeader('3. Sales / Invoices Line-Item Details'),
               ...sales.map((sale) {
@@ -514,8 +658,40 @@ class PdfService {
               }),
             ],
 
+            // 4. CUSTOMER PAYMENTS RECEIVED
+            if (customerPayments.isNotEmpty) ...[
+              sectionHeader('4. Customer Payments Received'),
+              pw.TableHelper.fromTextArray(
+                border: null,
+                cellStyle: const pw.TextStyle(fontSize: 8),
+                headerStyle: pw.TextStyle(
+                    fontSize: 8, fontWeight: pw.FontWeight.bold),
+                headerDecoration:
+                    const pw.BoxDecoration(color: PdfColors.grey100),
+                cellHeight: 18,
+                headers: ['Date', 'Customer', 'Method', 'Reference / Note', 'Amount (Rs)'],
+                cellAlignments: {
+                  0: pw.Alignment.centerLeft,
+                  1: pw.Alignment.centerLeft,
+                  2: pw.Alignment.center,
+                  3: pw.Alignment.centerLeft,
+                  4: pw.Alignment.centerRight,
+                },
+                data: customerPayments
+                    .map((cp) => [
+                          DateFormat('yyyy-MM-dd').format(cp.date),
+                          cp.customerName,
+                          cp.method,
+                          cp.reference,
+                          formatter.format(cp.amount),
+                        ])
+                    .toList(),
+              ),
+            ],
+
+            // 5. PURCHASES DETAILS
             if (purchases.isNotEmpty) ...[
-              sectionHeader('4. Purchases Line-Item Details'),
+              sectionHeader('5. Purchases Line-Item Details'),
               ...purchases.map((pur) {
                 return pw.Container(
                   margin: const pw.EdgeInsets.only(bottom: 10),
@@ -558,8 +734,85 @@ class PdfService {
               }),
             ],
 
+            // 6. PURCHASE RETURNS DETAILS
+            if (purchaseReturns.isNotEmpty) ...[
+              sectionHeader('6. Purchase Returns'),
+              ...purchaseReturns.map((r) {
+                return pw.Container(
+                  margin: const pw.EdgeInsets.only(bottom: 10),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'Return #${r.id} | Purchase #${r.purchaseId} | Date: ${DateFormat('yyyy-MM-dd').format(r.returnDate)} | Vendor: ${r.vendorName} | Refund: ${r.paymentMethod.toUpperCase()} | Total Refund: Rs. ${formatter.format(r.totalAmount)}',
+                        style: pw.TextStyle(
+                            fontSize: 10, fontWeight: pw.FontWeight.bold),
+                      ),
+                      pw.SizedBox(height: 3),
+                      pw.TableHelper.fromTextArray(
+                        border: null,
+                        cellStyle: const pw.TextStyle(fontSize: 8),
+                        headerStyle: pw.TextStyle(
+                            fontSize: 8, fontWeight: pw.FontWeight.bold),
+                        headerDecoration:
+                            const pw.BoxDecoration(color: PdfColors.grey100),
+                        cellHeight: 18,
+                        headers: ['Returned Item', 'Qty', 'Unit Price', 'Total'],
+                        cellAlignments: {
+                          0: pw.Alignment.centerLeft,
+                          1: pw.Alignment.centerRight,
+                          2: pw.Alignment.centerRight,
+                          3: pw.Alignment.centerRight,
+                        },
+                        data: r.items
+                            .map((item) => [
+                                  item.productName,
+                                  qtyFormatter.format(item.quantity),
+                                  formatter.format(item.unitPrice),
+                                  formatter.format(item.quantity * item.unitPrice),
+                                ])
+                            .toList(),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+
+            // 7. BANK TRANSACTIONS
+            if (bankEntries.isNotEmpty) ...[
+              sectionHeader('7. Bank Transactions Breakdown'),
+              pw.TableHelper.fromTextArray(
+                border: null,
+                cellStyle: const pw.TextStyle(fontSize: 8),
+                headerStyle: pw.TextStyle(
+                    fontSize: 8, fontWeight: pw.FontWeight.bold),
+                headerDecoration:
+                    const pw.BoxDecoration(color: PdfColors.grey100),
+                cellHeight: 18,
+                headers: ['Date', 'Bank Account', 'Description', 'Type', 'Amount (Rs)'],
+                cellAlignments: {
+                  0: pw.Alignment.centerLeft,
+                  1: pw.Alignment.centerLeft,
+                  2: pw.Alignment.centerLeft,
+                  3: pw.Alignment.center,
+                  4: pw.Alignment.centerRight,
+                },
+                data: bankEntries
+                    .map((b) => [
+                          DateFormat('yyyy-MM-dd').format(b.date),
+                          b.bankName,
+                          b.description,
+                          b.type,
+                          formatter.format(b.amount),
+                        ])
+                    .toList(),
+              ),
+            ],
+
+            // 8. EXPENSES
             if (expenses.isNotEmpty) ...[
-              sectionHeader('5. Expenses Breakdown'),
+              sectionHeader('8. Expenses Breakdown'),
               pw.TableHelper.fromTextArray(
                 border: null,
                 cellStyle: const pw.TextStyle(fontSize: 8),
@@ -586,8 +839,9 @@ class PdfService {
               ),
             ],
 
+            // 9. SALARY DISBURSEMENTS
             if (salaries.isNotEmpty) ...[
-              sectionHeader('6. Salary Disbursements'),
+              sectionHeader('9. Salary Disbursements'),
               pw.TableHelper.fromTextArray(
                 border: null,
                 cellStyle: const pw.TextStyle(fontSize: 8),
@@ -619,8 +873,9 @@ class PdfService {
               ),
             ],
 
+            // 10. QUOTATIONS CREATED
             if (quotations.isNotEmpty) ...[
-              sectionHeader('7. Quotations Created'),
+              sectionHeader('10. Quotations Created'),
               pw.TableHelper.fromTextArray(
                 border: null,
                 cellStyle: const pw.TextStyle(fontSize: 8),
@@ -658,7 +913,7 @@ class PdfService {
 
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdf.save(),
-      name: 'ActivityReport_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf',
+      name: 'Master_Audit_Report_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf',
     );
   }
 

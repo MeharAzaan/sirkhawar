@@ -115,7 +115,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
         _isWithinRange(s.paymentDate) &&
         (_selectedCompany == 'All' || s.company == _selectedCompany)).toList();
 
-    final filteredPurchases = data.purchases.where((p) => _isWithinRange(p.purchaseDate)).toList();
+    final filteredPurchases = data.purchases.where((p) =>
+        _isWithinRange(p.purchaseDate) &&
+        (_selectedCompany == 'All' || p.company == _selectedCompany)).toList();
+
+    final filteredPurchaseReturns = data.purchaseReturns.where((r) =>
+        _isWithinRange(r.returnDate) &&
+        (_selectedCompany == 'All' || r.company == _selectedCompany)).toList();
 
     final Set<String> activeCustomers = {};
     for (var s in filteredSales) {
@@ -152,7 +158,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           else
             TextButton.icon(
               icon: const Icon(Icons.download, color: Colors.white),
-              label: const Text('Download PDF', style: TextStyle(color: Colors.white)),
+              label: const Text('Download Master Report', style: TextStyle(color: Colors.white)),
               onPressed: () async {
                 setState(() => _isGenerating = true);
                 try {
@@ -163,6 +169,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     sales: filteredSales,
                     quotations: filteredQuots,
                     purchases: filteredPurchases,
+                    purchaseReturns: filteredPurchaseReturns,
                     expenses: filteredExpenses,
                     salaries: filteredSalaries,
                     activeCustomers: activeCustomers.toList(),
@@ -171,7 +178,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Please check your internet connection'),
+                        content: Text('Please check your internet connection or try again.'),
                         backgroundColor: AppColors.expenseRed,
                       ),
                     );
@@ -200,15 +207,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String>(
+                      isExpanded: true,
                       value: _selectedCompany,
                       decoration: const InputDecoration(
                         labelText: 'Company Filter',
                         border: OutlineInputBorder(),
                       ),
                       items: const [
-                        DropdownMenuItem(value: 'All', child: Text('All (Merged)')),
-                        DropdownMenuItem(value: AppCompanies.energy, child: Text('Alternative Energy Solution')),
-                        DropdownMenuItem(value: AppCompanies.electric, child: Text('Alternative Electric Solutions')),
+                        DropdownMenuItem(value: 'All', child: Text('All (Merged)', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: AppCompanies.energy, child: Text('Alternative Energy Solution', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: AppCompanies.electric, child: Text('Alternative Electric Solutions', overflow: TextOverflow.ellipsis)),
                       ],
                       onChanged: (v) {
                         if (v != null) {
@@ -220,19 +228,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   const SizedBox(width: 16),
                   Expanded(
                     child: DropdownButtonFormField<String>(
+                      isExpanded: true,
                       value: _selectedDateRange,
                       decoration: const InputDecoration(
                         labelText: 'Date Range',
                         border: OutlineInputBorder(),
                       ),
                       items: const [
-                        DropdownMenuItem(value: 'Today', child: Text('Today')),
-                        DropdownMenuItem(value: 'This Week', child: Text('This Week')),
-                        DropdownMenuItem(value: 'This Month', child: Text('This Month')),
-                        DropdownMenuItem(value: 'Last Month', child: Text('Last Month')),
-                        DropdownMenuItem(value: 'Last 3 Months', child: Text('Last 3 Months')),
-                        DropdownMenuItem(value: 'This Year', child: Text('This Year')),
-                        DropdownMenuItem(value: 'Custom Range', child: Text('Custom Range...')),
+                        DropdownMenuItem(value: 'Today', child: Text('Today', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'This Week', child: Text('This Week', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'This Month', child: Text('This Month', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'Last Month', child: Text('Last Month', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'Last 3 Months', child: Text('Last 3 Months', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'This Year', child: Text('This Year', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'Custom Range', child: Text('Custom Range...', overflow: TextOverflow.ellipsis)),
                       ],
                       onChanged: (v) {
                         if (v != null) {
