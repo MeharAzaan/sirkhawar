@@ -13,13 +13,13 @@ import '../models/employee.dart';
 import '../data/app_data.dart';
 import '../screens/quotation_preview_screen.dart';
 
-// NEW IMPORT needed for the PDF statement
+// IMPORT needed for the PDF statement
 import '../screens/account_ledger_screen.dart';
 
 class PdfService {
   
-    // ==========================================
-  // EXISTING FUNCTION: Quotations
+  // ==========================================
+  // FUNCTION: Quotations PDF (Fixed Layout & Wrapping)
   // ==========================================
   static Future<void> generateAndSavePdf(Quotation quotation) async {
     final pdf = pw.Document();
@@ -55,22 +55,18 @@ class PdfService {
       }
     }
 
-    // Fixed column widths so Qty / Rate / Amount never stutter
-    const colNo = 28.0;
-    const colQty = 72.0;
-    const colRate = 85.0;
-    const colAmount = 95.0;
-
     pw.Widget buildHeaderCell(String text, {pw.Alignment align = pw.Alignment.centerLeft}) {
-      return pw.Container(
+      return pw.Padding(
         padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-        alignment: align,
-        child: pw.Text(
-          text,
-          style: pw.TextStyle(
-            fontWeight: pw.FontWeight.bold,
-            fontSize: 10,
-            color: PdfColors.grey800,
+        child: pw.Align(
+          alignment: align,
+          child: pw.Text(
+            text,
+            style: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 10,
+              color: PdfColors.grey900,
+            ),
           ),
         ),
       );
@@ -80,22 +76,22 @@ class PdfService {
       String text, {
       pw.Alignment align = pw.Alignment.centerLeft,
       bool bold = false,
-      bool allowWrap = true,
     }) {
-      return pw.Container(
-        padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-        alignment: align,
-        child: pw.Text(
-          text,
-          textAlign: align == pw.Alignment.centerRight
-              ? pw.TextAlign.right
-              : pw.TextAlign.left,
-          style: pw.TextStyle(
-            fontSize: 10,
-            fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
-            color: PdfColors.blueGrey900,
+      return pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+        child: pw.Align(
+          alignment: align,
+          child: pw.Text(
+            text,
+            textAlign: align == pw.Alignment.centerRight
+                ? pw.TextAlign.right
+                : (align == pw.Alignment.center ? pw.TextAlign.center : pw.TextAlign.left),
+            style: pw.TextStyle(
+              fontSize: 9.5,
+              fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+              color: PdfColors.blueGrey900,
+            ),
           ),
-          maxLines: allowWrap ? 6 : 1,
         ),
       );
     }
@@ -106,9 +102,10 @@ class PdfService {
         margin: const pw.EdgeInsets.all(32),
         build: (pw.Context context) {
           return [
+            // Company Logo / Name Header
             if (logoImage != null) ...[
               pw.Center(
-                child: pw.Image(logoImage, height: 120, fit: pw.BoxFit.contain),
+                child: pw.Image(logoImage, height: 110, fit: pw.BoxFit.contain),
               ),
             ] else ...[
               pw.Center(
@@ -126,6 +123,7 @@ class PdfService {
             pw.Divider(color: PdfColors.grey300),
             pw.SizedBox(height: 12),
 
+            // Quotation Title and Date
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -141,6 +139,7 @@ class PdfService {
                         color: PdfColors.blueGrey900,
                       ),
                     ),
+                    pw.SizedBox(height: 2),
                     pw.Text(
                       'Quotation #: ${quotation.id}',
                       style: pw.TextStyle(
@@ -161,6 +160,7 @@ class PdfService {
             pw.Divider(color: PdfColors.grey300),
             pw.SizedBox(height: 12),
 
+            // Customer Info
             pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
@@ -179,115 +179,54 @@ class PdfService {
             ),
             pw.SizedBox(height: 16),
 
-            // ── BOXED ITEMS TABLE ──
-            pw.Container(
-              decoration: pw.BoxDecoration(
-                border: pw.Border.all(color: PdfColors.grey400, width: 0.8),
-                borderRadius: pw.BorderRadius.circular(4),
+            // ── CLEAN NATIVE BOXED TABLE ──
+            pw.Table(
+              border: pw.TableBorder.all(
+                color: PdfColors.grey400,
+                width: 0.6,
               ),
-              child: pw.Column(
-                children: [
-                  // Header row
-                  pw.Container(
-                    decoration: const pw.BoxDecoration(
-                      color: PdfColors.grey200,
-                      borderRadius: pw.BorderRadius.only(
-                        topLeft: pw.Radius.circular(3.5),
-                        topRight: pw.Radius.circular(3.5),
-                      ),
-                    ),
-                    child: pw.Row(
-                      crossAxisAlignment: pw.CrossAxisAlignment.center,
-                      children: [
-                        pw.SizedBox(
-                          width: colNo,
-                          child: buildHeaderCell('No'),
-                        ),
-                        pw.Expanded(
-                          child: buildHeaderCell('Item'),
-                        ),
-                        pw.SizedBox(
-                          width: colQty,
-                          child: buildHeaderCell('Quantity',
-                              align: pw.Alignment.centerRight),
-                        ),
-                        pw.SizedBox(
-                          width: colRate,
-                          child: buildHeaderCell('Rate',
-                              align: pw.Alignment.centerRight),
-                        ),
-                        pw.SizedBox(
-                          width: colAmount,
-                          child: buildHeaderCell('Amount',
-                              align: pw.Alignment.centerRight),
-                        ),
-                      ],
-                    ),
-                  ),
+              columnWidths: {
+                0: const pw.FixedColumnWidth(28),   // No
+                1: const pw.FlexColumnWidth(1.0),   // Item Name (Flexible, absorbs remaining space)
+                2: const pw.FixedColumnWidth(65),   // Quantity
+                3: const pw.FixedColumnWidth(80),   // Rate
+                4: const pw.FixedColumnWidth(85),   // Amount
+              },
+              children: [
+                // Header Row
+                pw.TableRow(
+                  decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                  children: [
+                    buildHeaderCell('No', align: pw.Alignment.center),
+                    buildHeaderCell('Item', align: pw.Alignment.centerLeft),
+                    buildHeaderCell('Quantity', align: pw.Alignment.centerRight),
+                    buildHeaderCell('Rate', align: pw.Alignment.centerRight),
+                    buildHeaderCell('Amount', align: pw.Alignment.centerRight),
+                  ],
+                ),
 
-                  // Item rows — each in its own box strip
-                  ...List.generate(quotation.items.length, (index) {
-                    final item = quotation.items[index];
-                    final isLast = index == quotation.items.length - 1;
-                    return pw.Container(
-                      decoration: pw.BoxDecoration(
-                        color: index.isOdd
-                            ? PdfColors.grey100
-                            : PdfColors.white,
-                        border: isLast
-                            ? null
-                            : const pw.Border(
-                                bottom: pw.BorderSide(
-                                    color: PdfColors.grey300, width: 0.5),
-                              ),
-                      ),
-                      child: pw.Row(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          pw.SizedBox(
-                            width: colNo,
-                            child: buildCell('${index + 1}'),
-                          ),
-                          // Item name — wraps inside its box only
-                          pw.Expanded(
-                            child: buildCell(item.productName, allowWrap: true),
-                          ),
-                          // Fixed right columns — never wrap / stutter
-                          pw.SizedBox(
-                            width: colQty,
-                            child: buildCell(
-                              '${qtyFormatter.format(item.quantity)} Nos',
-                              align: pw.Alignment.centerRight,
-                              allowWrap: false,
-                            ),
-                          ),
-                          pw.SizedBox(
-                            width: colRate,
-                            child: buildCell(
-                              formatter.format(item.unitPrice),
-                              align: pw.Alignment.centerRight,
-                              allowWrap: false,
-                            ),
-                          ),
-                          pw.SizedBox(
-                            width: colAmount,
-                            child: buildCell(
-                              formatter.format(item.total),
-                              align: pw.Alignment.centerRight,
-                              bold: true,
-                              allowWrap: false,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }),
-                ],
-              ),
+                // Data Rows
+                ...List.generate(quotation.items.length, (index) {
+                  final item = quotation.items[index];
+                  return pw.TableRow(
+                    decoration: pw.BoxDecoration(
+                      color: index.isOdd ? PdfColors.grey100 : PdfColors.white,
+                    ),
+                    children: [
+                      buildCell('${index + 1}', align: pw.Alignment.center),
+                      buildCell(item.productName, align: pw.Alignment.centerLeft),
+                      buildCell('${qtyFormatter.format(item.quantity)} Nos', align: pw.Alignment.centerRight),
+                      buildCell(formatter.format(item.unitPrice), align: pw.Alignment.centerRight),
+                      buildCell(formatter.format(item.total), align: pw.Alignment.centerRight, bold: true),
+                    ],
+                  );
+                }),
+              ],
             ),
 
             pw.SizedBox(height: 16),
 
+            // Totals Summary
             pw.Align(
               alignment: pw.Alignment.centerRight,
               child: pw.SizedBox(
@@ -326,6 +265,7 @@ class PdfService {
             ),
             pw.SizedBox(height: 20),
 
+            // Grand Total Box + Amount In Words
             pw.Container(
               padding:
                   const pw.EdgeInsets.symmetric(vertical: 12, horizontal: 16),
@@ -723,7 +663,7 @@ class PdfService {
   }
 
   // ==========================================
-  // Ledger Statement PDF (supports date period)
+  // Ledger Statement PDF
   // ==========================================
   static Future<void> generateLedgerStatementPdf({
     required String accountName,
@@ -763,7 +703,6 @@ class PdfService {
     final totalIn = items.fold(0.0, (sum, i) => sum + i.credit);
     final totalOut = items.fold(0.0, (sum, i) => sum + i.debit);
 
-    // Human-readable period line for the PDF header
     String periodText;
     if (startDate != null && endDate != null) {
       periodText =
@@ -783,7 +722,6 @@ class PdfService {
         margin: const pw.EdgeInsets.all(32),
         build: (pw.Context context) {
           return [
-            // ── HEADER ──
             if (logoImage != null) ...[
               pw.Center(
                 child: pw.Image(logoImage, height: 80, fit: pw.BoxFit.contain),
@@ -834,7 +772,6 @@ class PdfService {
             ),
             pw.SizedBox(height: 16),
 
-            // ── SUMMARY BOX ──
             pw.Container(
               padding: const pw.EdgeInsets.all(12),
               decoration: pw.BoxDecoration(
@@ -859,7 +796,6 @@ class PdfService {
             ),
             pw.SizedBox(height: 24),
 
-            // ── TRANSACTIONS TABLE ──
             if (items.isEmpty)
               pw.Center(
                 child: pw.Padding(
@@ -910,7 +846,6 @@ class PdfService {
                   'Balance'
                 ],
                 data: [
-                  // Opening Balance Row
                   [
                     startDate != null ? dateFmt.format(startDate) : '-',
                     openingLabel,
@@ -918,7 +853,6 @@ class PdfService {
                     '-',
                     formatter.format(openingBalance),
                   ],
-                  // Transaction Rows
                   ...items.map((item) => [
                         dateFmt.format(item.date),
                         item.description,
@@ -1009,7 +943,6 @@ class PdfService {
             pw.Divider(color: PdfColors.grey300),
             pw.SizedBox(height: 12),
 
-            // Summary
             pw.Container(
               padding: const pw.EdgeInsets.all(12),
               decoration: pw.BoxDecoration(

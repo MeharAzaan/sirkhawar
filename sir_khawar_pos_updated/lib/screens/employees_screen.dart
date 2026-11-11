@@ -209,6 +209,9 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
             selectedBankId = filteredBanks.first.id;
           }
 
+          // Live cash balance for selected company drawer
+          final availableCash = data.getCashBalance(selectedCompany);
+
           return AlertDialog(
             backgroundColor: AppColors.cardBg,
             title: Text('Pay Salary - ${employee.name}',
@@ -274,6 +277,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                     DropdownButtonFormField<String>(
                       dropdownColor: AppColors.cardBg,
                       value: selectedCompany,
+                      isExpanded: true,
                       style: const TextStyle(color: AppColors.textPrimary),
                       decoration: InputDecoration(
                         labelText: selectedMethod == PaymentMethod.cash
@@ -294,12 +298,14 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                         DropdownMenuItem(
                           value: 'energy',
                           child: Text('Alternative Energy Solution',
-                              style: TextStyle(color: AppColors.textPrimary)),
+                              style: TextStyle(color: AppColors.textPrimary),
+                              overflow: TextOverflow.ellipsis),
                         ),
                         DropdownMenuItem(
                           value: 'electric',
                           child: Text('Alternative Electric Solutions',
-                              style: TextStyle(color: AppColors.textPrimary)),
+                              style: TextStyle(color: AppColors.textPrimary),
+                              overflow: TextOverflow.ellipsis),
                         ),
                       ],
                       onChanged: (v) {
@@ -316,6 +322,25 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                         }
                       },
                     ),
+
+                    // ── Available Cash Balance (when paying from cash) ──
+                    if (selectedMethod == PaymentMethod.cash) ...[
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Available Cash: Rs. ${availableCash.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            color: availableCash > 0
+                                ? AppColors.cashGreen
+                                : AppColors.expenseRed,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+
                     // Bank picker for Bank/Online & Cheque payments
                     if (selectedMethod == PaymentMethod.online ||
                         selectedMethod == PaymentMethod.cheque) ...[
@@ -328,6 +353,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                             : (filteredBanks.isNotEmpty
                                 ? filteredBanks.first.id
                                 : null),
+                        isExpanded: true,
                         style: const TextStyle(color: AppColors.textPrimary),
                         decoration: InputDecoration(
                           labelText: selectedMethod == PaymentMethod.cheque
@@ -347,9 +373,12 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                         items: filteredBanks
                             .map((b) => DropdownMenuItem(
                                   value: b.id,
-                                  child: Text(b.name,
-                                      style: const TextStyle(
-                                          color: AppColors.textPrimary)),
+                                  child: Text(
+                                    b.name,
+                                    style: const TextStyle(
+                                        color: AppColors.textPrimary),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ))
                             .toList(),
                         onChanged: (v) {
@@ -378,6 +407,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                           child: DropdownButtonFormField<int>(
                             dropdownColor: AppColors.cardBg,
                             value: selectedMonth,
+                            isExpanded: true,
                             style:
                                 const TextStyle(color: AppColors.textPrimary),
                             decoration: const InputDecoration(
@@ -401,7 +431,8 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                                 value: i + 1,
                                 child: Text(_monthName(i + 1),
                                     style: const TextStyle(
-                                        color: AppColors.textPrimary)),
+                                        color: AppColors.textPrimary),
+                                    overflow: TextOverflow.ellipsis),
                               ),
                             ),
                             onChanged: (v) {
@@ -416,6 +447,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                           child: DropdownButtonFormField<int>(
                             dropdownColor: AppColors.cardBg,
                             value: selectedYear,
+                            isExpanded: true,
                             style:
                                 const TextStyle(color: AppColors.textPrimary),
                             decoration: const InputDecoration(
@@ -441,6 +473,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                                   (DateTime.now().year - 2 + i).toString(),
                                   style: const TextStyle(
                                       color: AppColors.textPrimary),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ),
@@ -491,6 +524,24 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                         final amount = double.tryParse(amountCtrl.text);
                         if (amount == null || amount <= 0) return;
 
+                        // ── CASH: block if more than available drawer balance ──
+                        if (selectedMethod == PaymentMethod.cash) {
+                          final cashAvailable =
+                              data.getCashBalance(selectedCompany);
+                          if (amount > cashAvailable) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Insufficient cash in ${selectedCompany == 'electric' ? 'Electric' : 'Energy'} drawer. Available: Rs. ${cashAvailable.toStringAsFixed(2)}',
+                                ),
+                                backgroundColor: AppColors.expenseRed,
+                              ),
+                            );
+                            return;
+                          }
+                        }
+
+                        // ── BANK / CHEQUE: existing balance check ──
                         if (selectedMethod != PaymentMethod.cash) {
                           if (filteredBanks.isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
